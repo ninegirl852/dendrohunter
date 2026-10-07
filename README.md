@@ -11,7 +11,7 @@ npm install
 npm run dev
 ```
 
-The dev server listens on [http://127.0.0.1:43127](http://127.0.0.1:43127).
+The dev server listens on [http://127.0.0.1:47291](http://127.0.0.1:47291).
 
 Inside the app, open **⚙️ 設定**, turn on **啟用虛擬 GPS (開發模式)**, choose a park, then tap its map marker and **進入公園**. Drag to look around, use the joystick or WASD to walk, and tap a tree to read its name. **🎒 行動選單** holds daily check-in, the garden, the card album, camera QR scan, and manual species entry.
 
