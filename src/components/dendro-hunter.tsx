@@ -38,10 +38,13 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import {
+  CHECKIN_REWARDS,
   checkIn,
+  checkInPreview,
   cleanSpeciesName,
   collectSpecies,
   EMPTY_PLAYER,
+  liveStreak,
   loadPlayer,
   localDateKey,
   savePlayer,
@@ -109,6 +112,7 @@ export default function DendroHunter() {
   const [view3d, setView3d] = useState(false);
   const [currentPark, setCurrentPark] = useState<ParkRecord | null>(null);
   const [treeTip, setTreeTip] = useState<{ chinese: string; scientific: string } | null>(null);
+  const [checkinOpen, setCheckinOpen] = useState(false);
   const [gardenOpen, setGardenOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [revealOpen, setRevealOpen] = useState(false);
@@ -410,7 +414,7 @@ export default function DendroHunter() {
       return;
     }
     setPlayer(outcome.player);
-    showToast("簽到成功！獲得 1 袋肥料 🌱");
+    showToast(`簽到成功！連續 ${outcome.streak} 天，獲得 ${outcome.reward} 袋肥料 🌱`);
   };
 
   const onUpgrade = (species: string) => {
@@ -581,6 +585,7 @@ export default function DendroHunter() {
   };
 
   const checkedInToday = player.lastCheckinDate === localDateKey();
+  const checkin = checkInPreview(player);
   const showMap = !(inPark && view3d);
 
   return (
@@ -615,7 +620,7 @@ export default function DendroHunter() {
       ) : null}
 
       <div className="stats-panel">
-        <div className="streak-pill">連續簽到：{player.streak} 天</div>
+        <div className="streak-pill">連續簽到：{liveStreak(player)} 天</div>
         <div className="fertilizer-pill">🌱 肥料：{player.fertilizer}</div>
         <div className="species-pill">📖 已收集：{player.collectedSpecies.length} 種</div>
       </div>
@@ -717,10 +722,10 @@ export default function DendroHunter() {
           className={`checkin-btn ${checkedInToday ? "is-done" : ""}`}
           onClick={() => {
             closeMenu();
-            onCheckIn();
+            setCheckinOpen(true);
           }}
         >
-          每日簽到
+          {checkedInToday ? "今日已簽到" : "每日簽到"}
         </Button>
         <Button
           type="button"
@@ -846,6 +851,53 @@ export default function DendroHunter() {
             </Button>
             <Button type="button" className="confirm-btn" onClick={confirmManual}>
               確認收集
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={checkinOpen} onOpenChange={setCheckinOpen}>
+        <DialogContent className="game-modal" showCloseButton={false}>
+          <DialogHeader className="center-copy">
+            <DialogTitle className="collection-title">每日簽到</DialogTitle>
+            <DialogDescription>
+              連續簽到才會累積。缺一天就從第 1 天重來，第 7 天肥料最多。
+            </DialogDescription>
+          </DialogHeader>
+          <p className="checkin-streak">
+            連續簽到：{checkin.already ? checkin.streak : liveStreak(player)} 天
+          </p>
+          {checkin.broken ? (
+            <p className="checkin-note">昨日未簽到，這次會從第 1 天重新計算。</p>
+          ) : null}
+          <div className="checkin-week" aria-label="七日簽到獎勵">
+            {CHECKIN_REWARDS.map((reward, index) => {
+              const claimed = checkin.already
+                ? index <= checkin.dayIndex
+                : index < checkin.dayIndex;
+              const isToday = index === checkin.dayIndex;
+              return (
+                <div
+                  key={index}
+                  className={`checkin-day${claimed ? " done" : ""}${isToday ? " today" : ""}`}
+                >
+                  <span>第{index + 1}天</span>
+                  <strong>{reward}🌱</strong>
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter className="modal-actions">
+            <Button type="button" className="cancel-btn" onClick={() => setCheckinOpen(false)}>
+              關閉
+            </Button>
+            <Button
+              type="button"
+              className={`confirm-btn ${checkin.already ? "is-done" : ""}`}
+              disabled={checkin.already}
+              onClick={onCheckIn}
+            >
+              {checkin.already ? "今日已簽到" : `領取 ${checkin.reward} 袋肥料`}
             </Button>
           </DialogFooter>
         </DialogContent>
