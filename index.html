@@ -1,0 +1,1628 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>城木獵人 Dendro-Hunter</title>
+  <meta name="description" content="在香港大型公園地圖上尋樹、掃描、收集卡牌，並用肥料培育虛擬園圃。">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    html, body { margin: 0; height: 100%; }
+    button, input, select { font-family: inherit; }
+    button { cursor: pointer; }
+    .game-root {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      background: #000;
+      color: #2c3e50;
+      font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif;
+    }
+    .city-map, .scene-layer, .scene-shell, .scene-canvas { position: absolute; inset: 0; }
+    .city-map { z-index: 1; }
+    .city-map.is-off { display: none; }
+    .scene-layer { z-index: 500; display: none; background: #87ceeb; }
+    .scene-layer.is-on { display: block; }
+    .scene-canvas { touch-action: none; }
+    .scene-canvas canvas { display: block; width: 100%; height: 100%; }
+    .joystick-zone {
+      position: absolute; bottom: 40px; left: 40px; z-index: 501;
+      width: 120px; height: 120px;
+    }
+    .crosshair {
+      position: absolute; top: 50%; left: 50%; z-index: 501;
+      width: 10px; height: 10px; border-radius: 50%;
+      background: rgba(255, 255, 255, 0.8);
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    .walk-hint {
+      position: absolute; bottom: 28px; left: 50%; z-index: 501;
+      max-width: calc(100% - 180px); margin: 0; padding: 6px 12px;
+      border-radius: 999px; background: rgba(0, 0, 0, 0.55); color: #fff;
+      font-size: 12px; text-align: center; transform: translateX(-50%);
+      pointer-events: none;
+    }
+    .tree-info-panel {
+      position: absolute; top: 70px; left: 50%; z-index: 1000;
+      min-width: 200px; padding: 12px 24px; border: 2px solid #27ae60;
+      border-radius: 12px; background: rgba(255, 255, 255, 0.95);
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2); text-align: center;
+      transform: translateX(-50%); pointer-events: none;
+    }
+    .tree-info-panel[hidden] { display: none; }
+    .tree-info-panel h4 { margin: 0 0 5px; color: #27ae60; font-size: 18px; }
+    .tree-info-panel p { margin: 0; color: #555; font-size: 13px; font-style: italic; }
+    .stats-panel {
+      position: absolute; top: 12px; left: 12px; z-index: 1000;
+      display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+      max-width: calc(100% - 148px); pointer-events: none;
+    }
+    .streak-pill, .fertilizer-pill, .species-pill {
+      max-width: 100%; padding: 7px 13px; border-radius: 20px;
+      font-size: 14px; font-weight: 700;
+      box-shadow: 0 3px 12px rgba(0, 0, 0, 0.15); pointer-events: auto;
+    }
+    .streak-pill {
+      padding: 5px 11px; border-radius: 16px;
+      background: rgba(0, 0, 0, 0.75); color: #f1c40f; font-size: 12px;
+    }
+    .fertilizer-pill, .species-pill { background: rgba(255, 255, 255, 0.95); }
+    .fertilizer-pill { border: 2px solid #2ecc71; color: #27ae60; }
+    .species-pill { border: 2px solid #3498db; color: #2980b9; }
+    .settings-btn, .switch-view-btn, .leave-park-btn {
+      position: absolute; right: 12px; z-index: 1000;
+      border-radius: 12px; padding: 10px 14px; font-size: 14px; font-weight: 700;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+    }
+    .settings-btn { top: 12px; border: 2px solid #27ae60; background: rgba(255, 255, 255, 0.95); color: #27ae60; }
+    .switch-view-btn { top: 12px; border: 2px solid #2980b9; background: #3498db; color: #fff; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); }
+    .leave-park-btn { top: 60px; border: 2px solid #c0392b; background: #e74c3c; color: #fff; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); }
+    .settings-panel {
+      display: none; position: absolute; top: 65px; right: 12px; z-index: 1000;
+      width: min(280px, calc(100vw - 24px)); padding: 14px 16px;
+      border: 2px solid #27ae60; border-radius: 12px;
+      background: rgba(255, 255, 255, 0.96); box-shadow: 0 4px 20px rgba(0, 0, 0, 0.18);
+      font-size: 14px;
+    }
+    .settings-panel.show { display: block; }
+    .settings-panel h3 {
+      margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid #ddd;
+      color: #1e8449; font-size: 16px;
+    }
+    .gps-box {
+      margin-bottom: 12px; padding: 10px; border: 1px solid #dcdcdc; border-radius: 8px;
+      background: #f0f3f4; color: #333; font-size: 13px; overflow-wrap: anywhere;
+    }
+    .gps-box strong, .gps-muted, .gps-mock, .gps-ok, .gps-bad { display: block; }
+    .gps-muted { margin-top: 4px; color: #666; }
+    .gps-mock { margin-top: 4px; color: #e67e22; font-weight: 700; }
+    .gps-ok { margin-top: 4px; color: #27ae60; font-weight: 700; }
+    .gps-ok small, .gps-bad { font-weight: 400; }
+    .gps-bad { margin-top: 4px; color: #e74c3c; font-weight: 700; }
+    .mock-label { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; cursor: pointer; }
+    .park-teleport { margin-bottom: 4px; }
+    .park-select {
+      width: 100%; margin-top: 6px; padding: 8px; border: 1px solid #ccc;
+      border-radius: 8px; background: #fff; font-size: 14px;
+    }
+    .park-select:disabled { opacity: 0.6; }
+    .settings-rule { margin: 15px 0; border: 0; border-top: 1px solid #ddd; }
+    .reset-btn, .retry-btn, .reset-confirm {
+      width: 100%; margin-top: 10px; border: 0; border-radius: 6px; background: #e74c3c;
+      padding: 10px; color: #fff; font-weight: 700; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+    .reset-btn:active, .retry-btn:active { transform: scale(0.95); }
+    .locate-btn {
+      position: absolute; bottom: 20px; left: 16px; z-index: 1000;
+      width: 48px; height: 48px; border: 2px solid #3498db; border-radius: 50%;
+      background: rgba(255, 255, 255, 0.95); padding: 0; font-size: 22px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+    }
+    .locate-btn:active { transform: scale(0.9); }
+    .toast-bar {
+      position: absolute; bottom: 120px; left: 50%; z-index: 2000;
+      max-width: 90%; padding: 10px 20px; border-radius: 20px;
+      background: rgba(0, 0, 0, 0.85); color: #fff; font-size: 14px; text-align: center;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3); transform: translateX(-50%);
+    }
+    .action-menu-btn {
+      position: absolute; right: 16px; bottom: 20px; z-index: 1001;
+      border: 0; border-radius: 30px; background: linear-gradient(135deg, #8e44ad, #9b59b6);
+      padding: 14px 22px; color: #fff; font-size: 15px; font-weight: 700;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    }
+    .action-menu {
+      display: none; position: absolute; right: 16px; bottom: 80px; z-index: 1000;
+      flex-direction: column; gap: 10px; width: min(160px, calc(100vw - 32px));
+      padding: 12px; border: 2px solid #8e44ad; border-radius: 16px;
+      background: rgba(255, 255, 255, 0.95); box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    }
+    .action-menu.show { display: flex; animation: slide-up 0.2s ease-out; }
+    @keyframes slide-up {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .action-menu button {
+      width: 100%; border: 0; border-radius: 30px; padding: 11px 16px; color: #fff;
+      font-size: 13px; font-weight: 700; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      white-space: normal;
+    }
+    .garden-btn { background: linear-gradient(135deg, #16a085, #1abc9c); }
+    .checkin-btn { background: linear-gradient(135deg, #27ae60, #2ecc71); }
+    .checkin-btn.is-done, .confirm-btn.is-done { background: #95a5a6; color: #fff; }
+    .collection-btn { background: linear-gradient(135deg, #f39c12, #d35400); }
+    .scan-btn { background: linear-gradient(135deg, #2980b9, #3498db); }
+    .real-scan-btn { background: linear-gradient(135deg, #8e44ad, #9b59b6); }
+    .checkin-streak { margin: 0 0 8px; color: #1e8449; font-size: 15px; font-weight: 700; text-align: center; }
+    .checkin-note { margin: 0 0 8px; color: #e67e22; font-size: 13px; text-align: center; }
+    .checkin-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+    .checkin-day {
+      display: flex; min-height: 58px; flex-direction: column; align-items: center;
+      justify-content: center; gap: 4px; border: 1px solid #d5f5e3; border-radius: 8px;
+      background: #f4fbf7; color: #1e8449; font-size: 10px; line-height: 1.2; text-align: center;
+    }
+    .checkin-day strong { font-size: 12px; }
+    .checkin-day.today { border-color: #27ae60; box-shadow: 0 0 0 2px rgba(39, 174, 96, 0.28); }
+    .checkin-day.done { border-color: #1e8449; background: #27ae60; color: #fff; }
+    .loading-overlay {
+      position: fixed; inset: 0; z-index: 2500; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 14px;
+      background: rgba(0, 0, 0, 0.78); color: #fff; font-size: 18px; text-align: center; padding: 24px;
+    }
+    .loading-overlay[hidden] { display: none; }
+    .spinner {
+      width: 42px; height: 42px; border: 4px solid rgba(255, 255, 255, 0.3);
+      border-top-color: #2ecc71; border-radius: 50%; animation: spin 0.9s linear infinite;
+    }
+    .spinner-small { display: block; width: 24px; height: 24px; margin: 10px auto 0; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .modal-backdrop {
+      position: fixed; inset: 0; z-index: 3000; display: none;
+      align-items: center; justify-content: center; padding: 16px;
+      background: rgba(0, 0, 0, 0.55);
+    }
+    .modal-backdrop.show { display: flex; }
+    .modal-backdrop.reveal-backdrop { background: rgba(0, 0, 0, 0.72); }
+    .game-modal {
+      width: min(92vw, 360px); max-height: calc(100vh - 32px); overflow: auto;
+      border-radius: 16px; background: #fff; padding: 20px; color: #2c3e50;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    }
+    .garden-modal { width: min(92vw, 450px); }
+    .collection-modal { width: min(92vw, 400px); }
+    .game-modal h2 { margin: 0 0 8px; color: #2c3e50; font-size: 18px; }
+    .modal-desc { margin: 0 0 12px; color: #666; font-size: 14px; }
+    .center-copy, .center-copy .modal-desc { text-align: center; }
+    .garden-title { color: #16a085; }
+    .collection-title { color: #27ae60; }
+    .qr-reader { width: 100%; min-height: 260px; overflow: hidden; border-radius: 10px; background: #111; }
+    .scan-message, .field-error { margin: 10px 0 0; font-size: 13px; text-align: center; }
+    .scan-message { color: #666; }
+    .field-error { color: #e74c3c; text-align: left; }
+    .species-input {
+      width: 100%; margin-top: 4px; padding: 10px 12px; border: 1px solid #ccc;
+      border-radius: 8px; font-size: 16px;
+    }
+    .species-input[aria-invalid="true"] { border-color: #e74c3c; }
+    .zoom-box { margin-top: 15px; text-align: center; }
+    .zoom-label { display: block; margin-bottom: 8px; color: #27ae60; font-weight: 700; }
+    .zoom-box input[type="range"] { width: 100%; accent-color: #27ae60; }
+    .modal-actions { display: flex; gap: 10px; margin-top: 14px; }
+    .modal-actions button, .cancel-btn, .confirm-btn, .reveal-close {
+      flex: 1; border: 0; border-radius: 8px; padding: 12px; font-size: 15px; font-weight: 700;
+    }
+    .cancel-btn { background: #bdc3c7; color: #2c3e50; }
+    .confirm-btn { background: #27ae60; color: #fff; }
+    .confirm-btn:disabled { cursor: default; }
+    .grid-scroll { max-height: 60vh; overflow: auto; }
+    .card-grid, .garden-grid { display: grid; gap: 10px; padding: 5px 5px 12px; }
+    .card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .garden-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 10px; }
+    .tcg-card {
+      display: flex; min-height: 120px; flex-direction: column; align-items: center;
+      justify-content: center; border: 2px solid #f1c40f; border-radius: 8px;
+      background: linear-gradient(135deg, #2ecc71, #27ae60); padding: 5px; color: #fff;
+      font-size: 14px; font-weight: 700; text-align: center; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+    .tcg-card.locked { border-color: #95a5a6; background: #bdc3c7; color: #7f8c8d; }
+    .card-icon { display: block; margin-bottom: 5px; font-size: 32px; }
+    .garden-card {
+      border: 2px solid #1abc9c; border-radius: 12px;
+      background: linear-gradient(135deg, #e8f8f5, #d1f2eb); padding: 12px 8px; text-align: center;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    }
+    .garden-card h4 { margin: 5px 0; color: #16a085; font-size: 15px; }
+    .stage-icon { display: block; margin: 5px 0; font-size: 36px; }
+    .level-text {
+      margin-bottom: 10px; border-radius: 4px; background: rgba(255, 255, 255, 0.6);
+      padding: 3px; color: #34495e; font-size: 12px; font-weight: 700;
+    }
+    .upgrade-btn {
+      width: 100%; border: 0; border-radius: 20px; background: #2ecc71; padding: 8px;
+      color: #fff; font-size: 12px; font-weight: 700; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+    .upgrade-btn.max { background: #f39c12; }
+    .upgrade-btn:active { transform: scale(0.95); }
+    .empty-copy { margin: 20px 0; color: #999; text-align: center; }
+    .reveal-modal { width: min(92vw, 360px); background: transparent; text-align: center; box-shadow: none; }
+    .reveal-heading { margin: 0 0 20px; color: #fff; font-size: 28px; text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5); }
+    .reveal-card {
+      display: flex; width: 200px; height: 280px; flex-direction: column; align-items: center;
+      justify-content: center; margin: 0 auto 20px; border: 5px solid #fff; border-radius: 12px;
+      background: linear-gradient(135deg, #f1c40f, #f39c12); color: #fff;
+      box-shadow: 0 0 40px rgba(241, 196, 15, 0.9);
+      animation: pop-in 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .reveal-icon { display: block; margin-bottom: 15px; font-size: 60px; }
+    .reveal-name { font-size: 24px; font-weight: 700; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3); }
+    .reveal-sub { margin-top: 10px; font-size: 12px; opacity: 0.9; }
+    .reveal-close { background: #f1c40f; color: #000; }
+    @keyframes pop-in {
+      from { opacity: 0; transform: scale(0) rotate(-20deg); }
+      to { opacity: 1; transform: scale(1) rotate(0); }
+    }
+    .park-popup { min-width: 170px; text-align: center; }
+    .park-popup-name { margin-bottom: 6px; color: #27ae60; font-size: 16px; font-weight: 700; }
+    .park-popup-count { margin-bottom: 8px; color: #666; font-size: 12px; }
+    .enter-park-btn {
+      width: 100%; margin-top: 10px; border: 0; border-radius: 8px; background: #27ae60;
+      padding: 8px 12px; color: #fff; font-size: 14px; font-weight: 700; cursor: pointer;
+    }
+    .game-root .leaflet-top.leaflet-left { top: 118px; }
+    .game-root .leaflet-bottom.leaflet-right { bottom: 78px; }
+    @media (max-width: 640px) {
+      .walk-hint { bottom: 168px; max-width: calc(100% - 32px); }
+      .stats-panel { max-width: calc(100% - 132px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="game-root">
+    <div id="city-map" class="city-map"></div>
+    <div id="scene-layer" class="scene-layer">
+      <div id="scene-canvas" class="scene-canvas"></div>
+      <div id="joystick" class="joystick-zone" aria-hidden="true"></div>
+      <div class="crosshair"></div>
+      <p class="walk-hint">拖曳轉向 · 搖桿或 WASD 步行 · 點一下樹木</p>
+      <div id="tree-info" class="tree-info-panel" hidden>
+        <h4 id="tree-name"></h4>
+        <p id="tree-sci"></p>
+      </div>
+    </div>
+
+    <div class="stats-panel">
+      <div id="streak-pill" class="streak-pill">連續簽到：0 天</div>
+      <div id="fertilizer-pill" class="fertilizer-pill">🌱 肥料：0</div>
+      <div id="species-pill" class="species-pill">📖 已收集：0 種</div>
+    </div>
+
+    <button type="button" id="settings-btn" class="settings-btn">⚙️ 設定</button>
+    <button type="button" id="switch-view-btn" class="switch-view-btn" hidden>🗺️ 2D 樹木分佈</button>
+    <button type="button" id="leave-park-btn" class="leave-park-btn" hidden>🚪 離開公園</button>
+
+    <section id="settings-panel" class="settings-panel">
+      <h3>⚙️ 系統設定</h3>
+      <div class="gps-box">
+        <strong>📍 定位狀態：</strong>
+        <div id="gps-readout"></div>
+      </div>
+      <label class="mock-label">
+        <input type="checkbox" id="mock-gps">
+        啟用虛擬 GPS (開發模式)
+      </label>
+      <div class="park-teleport">
+        <label for="park-select">傳送玩家至公園：</label>
+        <select id="park-select" class="park-select" disabled>
+          <option value="">-- 請先開啟虛擬 GPS --</option>
+        </select>
+      </div>
+      <hr class="settings-rule">
+      <button type="button" id="reset-btn" class="reset-btn">🗑️ 重設遊戲資料</button>
+    </section>
+
+    <button type="button" id="locate-btn" class="locate-btn" aria-label="回到目前位置">🎯</button>
+    <div id="toast" class="toast-bar" role="status" hidden></div>
+
+    <button type="button" id="menu-btn" class="action-menu-btn">🎒 行動選單</button>
+    <div id="action-menu" class="action-menu">
+      <button type="button" id="checkin-menu-btn" class="checkin-btn">每日簽到</button>
+      <button type="button" id="garden-menu-btn" class="garden-btn">🏡 虛擬園圃</button>
+      <button type="button" id="cards-menu-btn" class="collection-btn">📖 我的卡牌</button>
+      <button type="button" id="real-scan-btn" class="real-scan-btn">真實掃描 QR</button>
+      <button type="button" id="manual-scan-btn" class="scan-btn">模擬掃描</button>
+    </div>
+
+    <div id="loading" class="loading-overlay">
+      <div id="loading-spinner" class="spinner"></div>
+      <p id="loading-text">正在從本機載入樹木資料...</p>
+      <button type="button" id="retry-btn" class="retry-btn" hidden>重試</button>
+    </div>
+  </div>
+
+  <div id="scan-modal" class="modal-backdrop">
+    <div class="game-modal" role="dialog" aria-modal="true" aria-labelledby="scan-title">
+      <h2 id="scan-title">掃描樹木 QR Code</h2>
+      <div id="reader" class="qr-reader"></div>
+      <div id="zoom-box" class="zoom-box" hidden>
+        <label for="zoom-slider" class="zoom-label">🔍 鏡頭縮放</label>
+        <input id="zoom-slider" type="range" min="1" max="5" step="0.1" value="1">
+      </div>
+      <div id="scan-message" class="scan-message">正在請求相機權限...</div>
+      <div class="modal-actions">
+        <button type="button" class="cancel-btn" data-close="scan">關閉</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="manual-modal" class="modal-backdrop">
+    <div class="game-modal" role="dialog" aria-modal="true" aria-labelledby="manual-title">
+      <h2 id="manual-title">手動輸入樹木名稱</h2>
+      <p class="modal-desc">請看著樹木標籤，輸入中文品種名稱</p>
+      <input id="species-input" class="species-input" placeholder="例如：細葉榕、鳳凰木" autocomplete="off">
+      <p id="species-error" class="field-error" hidden></p>
+      <div class="modal-actions">
+        <button type="button" class="cancel-btn" data-close="manual">取消</button>
+        <button type="button" id="manual-confirm" class="confirm-btn">確認收集</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="checkin-modal" class="modal-backdrop">
+    <div class="game-modal" role="dialog" aria-modal="true" aria-labelledby="checkin-title">
+      <div class="center-copy">
+        <h2 id="checkin-title" class="collection-title">每日簽到</h2>
+        <p class="modal-desc">連續簽到才會累積。缺一天就從第 1 天重來，第 7 天肥料最多。</p>
+      </div>
+      <p id="checkin-streak" class="checkin-streak"></p>
+      <p id="checkin-note" class="checkin-note" hidden></p>
+      <div id="checkin-week" class="checkin-week" aria-label="七日簽到獎勵"></div>
+      <div class="modal-actions">
+        <button type="button" class="cancel-btn" data-close="checkin">關閉</button>
+        <button type="button" id="checkin-confirm" class="confirm-btn">領取 1 袋肥料</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="garden-modal" class="modal-backdrop">
+    <div class="game-modal garden-modal" role="dialog" aria-modal="true" aria-labelledby="garden-title">
+      <div class="center-copy">
+        <h2 id="garden-title" class="garden-title">🏡 我的虛擬園圃</h2>
+        <p class="modal-desc">消耗肥料讓你的樹苗成長茁壯！</p>
+      </div>
+      <div id="garden-body" class="grid-scroll"></div>
+      <div class="modal-actions">
+        <button type="button" class="cancel-btn" data-close="garden">關閉園圃</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="cards-modal" class="modal-backdrop">
+    <div class="game-modal collection-modal" role="dialog" aria-modal="true" aria-labelledby="cards-title">
+      <div class="center-copy">
+        <h2 id="cards-title" class="collection-title">🌳 樹木卡牌圖鑑</h2>
+        <p class="modal-desc">探索公園並掃描 QR Code 來解鎖更多樹木！</p>
+      </div>
+      <div id="cards-body" class="grid-scroll"></div>
+      <div class="modal-actions">
+        <button type="button" class="cancel-btn" data-close="cards">關閉圖鑑</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="reveal-modal" class="modal-backdrop reveal-backdrop">
+    <div class="reveal-modal" role="dialog" aria-modal="true" aria-labelledby="reveal-title">
+      <h2 id="reveal-title" class="reveal-heading">解鎖新卡牌！</h2>
+      <div class="reveal-card">
+        <span class="reveal-icon">🌳</span>
+        <span id="reveal-name" class="reveal-name"></span>
+        <span class="reveal-sub">★ 等級 1 幼苗 ★</span>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="reveal-close" data-close="reveal">放入園圃</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="reset-modal" class="modal-backdrop">
+    <div class="game-modal" role="dialog" aria-modal="true" aria-labelledby="reset-title">
+      <h2 id="reset-title">重設遊戲資料</h2>
+      <p class="modal-desc">⚠️ 警告：確定要刪除所有遊戲資料（包含收集的卡牌、肥料與園圃進度）嗎？此動作無法復原！</p>
+      <div class="modal-actions">
+        <button type="button" class="cancel-btn" data-close="reset">取消</button>
+        <button type="button" id="reset-confirm" class="reset-confirm">刪除</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/nipplejs@0.10.2/dist/nipplejs.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script>
+    const STORAGE_KEY = "dendro_hunter_save";
+    const TREE_DATA_URL = "./Trees_Major_Parks_Trees_Major_Parks_converted.geojson";
+    const TREE_API = "https://dendro-hunter.vercel.app/api/get-tree?url=";
+    const CHECKIN_REWARDS = [1, 1, 2, 2, 2, 2, 3];
+    const STAGE_ICONS = ["🌱", "🌿", "🪴", "🌳", "🌲"];
+    const STAGE_NAMES = ["幼苗", "小樹苗", "成長期", "大樹", "巨木"];
+    const HONG_KONG = { lat: 22.3193, lng: 114.1694 };
+
+    const $ = (id) => document.getElementById(id);
+    const cityMap = $("city-map");
+    const sceneLayer = $("scene-layer");
+    const sceneCanvas = $("scene-canvas");
+    const joystickZone = $("joystick");
+    const treeInfo = $("tree-info");
+    const settingsBtn = $("settings-btn");
+    const settingsPanel = $("settings-panel");
+    const switchBtn = $("switch-view-btn");
+    const leaveBtn = $("leave-park-btn");
+    const locateBtn = $("locate-btn");
+    const menuBtn = $("menu-btn");
+    const actionMenu = $("action-menu");
+    const checkinMenuBtn = $("checkin-menu-btn");
+    const parkSelect = $("park-select");
+    const mockInput = $("mock-gps");
+    const loading = $("loading");
+    const loadingSpinner = $("loading-spinner");
+    const loadingText = $("loading-text");
+    const retryBtn = $("retry-btn");
+
+    function emptyPlayer() {
+      return {
+        fertilizer: 0,
+        lastCheckinDate: null,
+        streak: 0,
+        totalCheckins: 0,
+        collectedSpecies: [],
+        treeLevels: {},
+      };
+    }
+
+    function localDateKey(date = new Date()) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return year + "-" + month + "-" + day;
+    }
+
+    function shiftDateKey(key, days) {
+      const parts = key.split("-").map(Number);
+      const date = new Date(parts[0], parts[1] - 1, parts[2]);
+      date.setDate(date.getDate() + days);
+      return localDateKey(date);
+    }
+
+    function cycleDayIndex(streak) {
+      if (streak <= 0) return 0;
+      return (streak - 1) % CHECKIN_REWARDS.length;
+    }
+
+    function liveStreak(data, today = localDateKey()) {
+      if (!data.lastCheckinDate || data.streak <= 0) return 0;
+      const yesterday = shiftDateKey(today, -1);
+      if (data.lastCheckinDate === today || data.lastCheckinDate === yesterday) return data.streak;
+      return 0;
+    }
+
+    function checkInPreview(data, today = localDateKey()) {
+      const already = data.lastCheckinDate === today;
+      const yesterday = shiftDateKey(today, -1);
+      const continues = data.lastCheckinDate === yesterday && data.streak > 0;
+      const streak = already ? data.streak : continues ? data.streak + 1 : 1;
+      const dayIndex = cycleDayIndex(streak);
+      return {
+        already,
+        broken: !already && !continues && data.lastCheckinDate !== null && data.streak > 0,
+        streak,
+        dayIndex,
+        reward: CHECKIN_REWARDS[dayIndex],
+      };
+    }
+
+    function cleanSpeciesName(name) {
+      return String(name || "").replace(/[（(].*?[）)]/g, "").trim();
+    }
+
+    function loadPlayer() {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (!saved) return emptyPlayer();
+        const parsed = JSON.parse(saved);
+        return {
+          ...emptyPlayer(),
+          ...parsed,
+          collectedSpecies: Array.isArray(parsed.collectedSpecies)
+            ? parsed.collectedSpecies.filter((item) => typeof item === "string")
+            : [],
+          treeLevels: parsed.treeLevels && typeof parsed.treeLevels === "object" ? parsed.treeLevels : {},
+        };
+      } catch {
+        return emptyPlayer();
+      }
+    }
+
+    function savePlayer(data) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    }
+
+    function collectSpecies(data, rawName) {
+      const speciesName = cleanSpeciesName(rawName);
+      if (!speciesName) return { player: data, result: { kind: "empty" } };
+      if (data.collectedSpecies.includes(speciesName)) {
+        return {
+          player: { ...data, fertilizer: data.fertilizer + 1 },
+          result: { kind: "duplicate", name: speciesName },
+        };
+      }
+      return {
+        player: {
+          ...data,
+          collectedSpecies: data.collectedSpecies.concat(speciesName),
+          treeLevels: { ...data.treeLevels, [speciesName]: 1 },
+          fertilizer: data.fertilizer + 2,
+        },
+        result: { kind: "new", name: speciesName },
+      };
+    }
+
+    function checkIn(data, today = localDateKey()) {
+      const preview = checkInPreview(data, today);
+      if (preview.already) return { player: data, already: true, reward: 0, streak: data.streak };
+      return {
+        already: false,
+        reward: preview.reward,
+        streak: preview.streak,
+        player: {
+          ...data,
+          fertilizer: data.fertilizer + preview.reward,
+          lastCheckinDate: today,
+          streak: preview.streak,
+          totalCheckins: data.totalCheckins + 1,
+        },
+      };
+    }
+
+    function upgradeTree(data, species) {
+      const level = data.treeLevels[species] || 1;
+      if (level >= 5) return { ok: false, reason: "max" };
+      if (data.fertilizer < 1) return { ok: false, reason: "fertilizer" };
+      const nextLevel = level + 1;
+      return {
+        ok: true,
+        stage: STAGE_NAMES[level],
+        player: {
+          ...data,
+          fertilizer: data.fertilizer - 1,
+          treeLevels: { ...data.treeLevels, [species]: nextLevel },
+        },
+      };
+    }
+
+    function groupParks(data) {
+      const draft = new Map();
+      for (const feature of (data && data.features) || []) {
+        const props = feature.properties || {};
+        const name = props.Location_in_Chinese || props.Location_in_English;
+        const coords = feature.geometry && feature.geometry.coordinates;
+        if (!name || !coords || coords.length < 2) continue;
+        const lng = coords[0];
+        const lat = coords[1];
+        if (typeof lng !== "number" || typeof lat !== "number") continue;
+        const park = draft.get(name) || { count: 0, latSum: 0, lngSum: 0, trees: [] };
+        park.count += 1;
+        park.lngSum += lng;
+        park.latSum += lat;
+        park.trees.push({
+          lat,
+          lng,
+          chinese: (props.Chinese_Name || "").trim() || "未知品種",
+          scientific: (props.Scientific_Name || "").trim() || "",
+        });
+        draft.set(name, park);
+      }
+      return [...draft.entries()].map(([name, park]) => ({
+        name,
+        count: park.count,
+        lat: park.latSum / park.count,
+        lng: park.lngSum / park.count,
+        trees: park.trees,
+      }));
+    }
+
+    function spawnInPark(park, playerLat, playerLng, usingMock) {
+      const latScale = 111000;
+      const lngScale = 111000 * Math.cos((park.lat * Math.PI) / 180);
+      let x = (playerLng - park.lng) * lngScale;
+      let z = -(playerLat - park.lat) * latScale;
+      if (Number.isNaN(x)) x = 0;
+      if (Number.isNaN(z)) z = 0;
+      const distance = Math.hypot(x, z);
+      if (usingMock || distance > 500) {
+        x = 0;
+        z = 0;
+      }
+      return {
+        x,
+        z,
+        latScale,
+        lngScale,
+        lat: park.lat - z / latScale,
+        lng: park.lng + x / lngScale,
+      };
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      })[char]);
+    }
+
+    let player = loadPlayer();
+    let parks = [];
+    let gps = navigator.geolocation
+      ? { kind: "searching" }
+      : { kind: "error", text: "❌ 不支援 GPS 定位" };
+    let playerPos = { ...HONG_KONG };
+    let mockGps = false;
+    let settingsOpen = false;
+    let menuOpen = false;
+    let inPark = false;
+    let view3d = false;
+    let currentPark = null;
+    let treeTip = null;
+    let mapBundle = null;
+    let virtualPos = { ...HONG_KONG };
+    let gpsLocked = false;
+    let appliedLock = false;
+    let watchId = null;
+    let toastTimer = 0;
+    let sceneApi = null;
+    let phase = "loading";
+    let scanSession = 0;
+    let qrScanner = null;
+    let videoTrack = null;
+
+    function showToast(message) {
+      const toast = $("toast");
+      toast.hidden = false;
+      toast.textContent = message;
+      window.clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => { toast.hidden = true; }, 3500);
+    }
+
+    function renderHud() {
+      $("streak-pill").textContent = "連續簽到：" + liveStreak(player) + " 天";
+      $("fertilizer-pill").textContent = "🌱 肥料：" + player.fertilizer;
+      $("species-pill").textContent = "📖 已收集：" + player.collectedSpecies.length + " 種";
+      const done = player.lastCheckinDate === localDateKey();
+      checkinMenuBtn.textContent = done ? "今日已簽到" : "每日簽到";
+      checkinMenuBtn.classList.toggle("is-done", done);
+    }
+
+    function renderGps() {
+      const node = $("gps-readout");
+      if (gps.kind === "pending") node.innerHTML = '<span class="gps-muted">準備中...</span>';
+      else if (gps.kind === "mock") node.innerHTML = '<span class="gps-mock">啟用虛擬 GPS</span>';
+      else if (gps.kind === "searching") node.innerHTML = '<span class="gps-muted">搜尋衛星訊號中...</span>';
+      else if (gps.kind === "ok") {
+        node.innerHTML = '<span class="gps-ok">🟢 成功<small>Lat: ' + gps.lat.toFixed(4) + "<br>Lng: " + gps.lng.toFixed(4) + "</small></span>";
+      } else node.innerHTML = '<span class="gps-bad">' + escapeHtml(gps.text) + "</span>";
+    }
+
+    function renderTreeTip() {
+      if (!treeTip) {
+        treeInfo.hidden = true;
+        return;
+      }
+      treeInfo.hidden = false;
+      $("tree-name").textContent = treeTip.chinese || "未知品種";
+      $("tree-sci").textContent = treeTip.scientific || "";
+    }
+
+    function updateChrome() {
+      sceneLayer.classList.toggle("is-on", inPark && view3d);
+      cityMap.classList.toggle("is-off", inPark && view3d);
+      settingsBtn.hidden = inPark;
+      settingsPanel.classList.toggle("show", settingsOpen && !inPark);
+      switchBtn.hidden = !inPark;
+      leaveBtn.hidden = !inPark;
+      switchBtn.textContent = view3d ? "🗺️ 2D 樹木分佈" : "🚶‍♂️ 3D 虛擬漫遊";
+      locateBtn.hidden = inPark && view3d;
+      menuBtn.textContent = menuOpen ? "❌ 關閉選單" : "🎒 行動選單";
+      actionMenu.classList.toggle("show", menuOpen);
+      parkSelect.disabled = !mockGps;
+      renderTreeTip();
+      renderHud();
+      if (sceneApi) {
+        sceneApi.setRunning(Boolean(inPark && view3d));
+        if (inPark && view3d) sceneApi.resize();
+      }
+    }
+
+    function setPhase(next) {
+      phase = next;
+      if (next === "ready") {
+        loading.hidden = true;
+        if (mapBundle) window.setTimeout(() => mapBundle.map.invalidateSize(), 50);
+        return;
+      }
+      loading.hidden = false;
+      const failed = next === "error";
+      loadingSpinner.hidden = failed;
+      retryBtn.hidden = !failed;
+      loadingText.textContent = failed ? "載入失敗，請確認檔案路徑與檔名。" : "正在從本機載入樹木資料...";
+    }
+
+    function movePlayer(lat, lng) {
+      playerPos = { lat, lng };
+      if (mapBundle) mapBundle.playerMarker.setLatLng([lat, lng]);
+    }
+
+    function paintTrees(park) {
+      if (!mapBundle) return;
+      mapBundle.treesLayer.clearLayers();
+      const collected = new Set(player.collectedSpecies);
+      park.trees.forEach((tree) => {
+        const known = collected.has(tree.chinese) || collected.has(cleanSpeciesName(tree.chinese));
+        const circle = L.circleMarker([tree.lat, tree.lng], {
+          radius: 6,
+          color: "#fff",
+          weight: 1.5,
+          fillColor: known ? "#2ecc71" : "#bdc3c7",
+          fillOpacity: 0.9,
+        });
+        circle.bindPopup("<b>" + escapeHtml(tree.chinese || "未知品種") + "</b><br><small>" + escapeHtml(tree.scientific) + "</small>");
+        circle.addTo(mapBundle.treesLayer);
+      });
+      mapBundle.virtualMarker.setLatLng([virtualPos.lat, virtualPos.lng]);
+      mapBundle.virtualMarker.addTo(mapBundle.treesLayer);
+    }
+
+    function ensureMap() {
+      if (mapBundle || typeof L === "undefined") return;
+      const icon = L.icon({
+        iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+        iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+        shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41],
+      });
+      const map = L.map(cityMap, { zoomControl: true }).setView([HONG_KONG.lat, HONG_KONG.lng], 11);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap",
+      }).addTo(map);
+      const parksLayer = L.layerGroup().addTo(map);
+      const treesLayer = L.layerGroup();
+      parks.forEach((park) => {
+        const marker = L.marker([park.lat, park.lng], { icon }).addTo(parksLayer);
+        marker.bindPopup(
+          '<div class="park-popup"><div class="park-popup-name">🌳 ' + escapeHtml(park.name) +
+          '</div><div class="park-popup-count">包含 ' + park.count +
+          ' 棵樹木</div><button type="button" class="enter-park-btn" data-park="' +
+          encodeURIComponent(park.name) + '">進入公園</button></div>'
+        );
+      });
+      const playerMarker = L.circleMarker([playerPos.lat, playerPos.lng], {
+        radius: 8, color: "#fff", weight: 2, fillColor: "#3498db", fillOpacity: 1,
+      }).bindPopup("<b>📍 目前位置</b>").addTo(map);
+      const virtualMarker = L.circleMarker([HONG_KONG.lat, HONG_KONG.lng], {
+        radius: 7, color: "#fff", weight: 2, fillColor: "#e74c3c", fillOpacity: 1,
+      }).bindPopup("<b>🚶 你的虛擬位置</b>");
+      map.on("popupopen", (event) => {
+        const button = event.popup.getElement() && event.popup.getElement().querySelector("[data-park]");
+        if (!button) return;
+        button.addEventListener("click", () => {
+          enterPark(decodeURIComponent(button.dataset.park));
+        }, { once: true });
+      });
+      mapBundle = { map, parksLayer, treesLayer, playerMarker, virtualMarker };
+      window.setTimeout(() => map.invalidateSize(), 50);
+      if (gpsLocked && !appliedLock && !inPark) {
+        map.setView([playerPos.lat, playerPos.lng], 16);
+        appliedLock = true;
+      }
+    }
+
+    function fillParkSelect() {
+      const current = parkSelect.value;
+      parkSelect.replaceChildren();
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "-- 請先開啟虛擬 GPS --";
+      parkSelect.appendChild(placeholder);
+      parks.forEach((park) => {
+        const option = document.createElement("option");
+        option.value = park.name;
+        option.textContent = park.name;
+        parkSelect.appendChild(option);
+      });
+      if (current) parkSelect.value = current;
+    }
+
+    async function loadData() {
+      setPhase("loading");
+      try {
+        if (typeof L === "undefined") throw new Error("map");
+        const response = await fetch(TREE_DATA_URL);
+        if (!response.ok) throw new Error("無法載入檔案");
+        parks = groupParks(await response.json());
+        if (!parks.length) throw new Error("empty");
+        fillParkSelect();
+        ensureMap();
+        setPhase("ready");
+        showToast("載入完成，點擊地圖上的公園標記進入");
+      } catch (error) {
+        console.error(error);
+        setPhase("error");
+      }
+    }
+
+    function destroyScene() {
+      if (!sceneApi) return;
+      sceneApi.destroy();
+      sceneApi = null;
+      sceneCanvas.replaceChildren();
+    }
+
+    function startScene(park) {
+      destroyScene();
+      if (typeof THREE === "undefined") return false;
+      const spawn = spawnInPark(park, playerPos.lat, playerPos.lng, mockGps);
+      let renderer = null;
+      let joystick = null;
+      let frame = 0;
+      let tipTimer = 0;
+      let running = true;
+      const move = { forward: 0, right: 0 };
+      const keys = { forward: 0, right: 0 };
+      const held = new Set();
+      try {
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87ceeb);
+        scene.fog = new THREE.Fog(0x87ceeb, 10, 150);
+        const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+        camera.rotation.order = "YXZ";
+        camera.position.set(spawn.x, 1.7, spawn.z);
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const lookDirection = new THREE.Vector3();
+        const strafe = new THREE.Vector3();
+        renderer = new THREE.WebGLRenderer({ antialias: false });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        renderer.setClearColor(0x87ceeb);
+        sceneCanvas.appendChild(renderer.domElement);
+
+        const resize = () => {
+          const width = sceneCanvas.clientWidth || window.innerWidth;
+          const height = sceneCanvas.clientHeight || window.innerHeight;
+          if (!width || !height) return;
+          camera.aspect = width / height;
+          camera.updateProjectionMatrix();
+          renderer.setSize(width, height, false);
+        };
+        const publishPosition = () => {
+          virtualPos = {
+            lat: park.lat - camera.position.z / spawn.latScale,
+            lng: park.lng + camera.position.x / spawn.lngScale,
+          };
+          if (mapBundle) mapBundle.virtualMarker.setLatLng([virtualPos.lat, virtualPos.lng]);
+        };
+        const showTree = (chinese, scientific) => {
+          window.clearTimeout(tipTimer);
+          treeTip = chinese ? { chinese, scientific: scientific || "" } : null;
+          renderTreeTip();
+          if (chinese) tipTimer = window.setTimeout(() => { treeTip = null; renderTreeTip(); }, 3000);
+        };
+        const pickTree = (clientX, clientY) => {
+          const rect = sceneCanvas.getBoundingClientRect();
+          if (!rect.width || !rect.height) return;
+          mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+          mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+          raycaster.setFromCamera(mouse, camera);
+          const hits = raycaster.intersectObjects(scene.children, true);
+          for (const hit of hits) {
+            const data = hit.object.userData || {};
+            if (data.chinese) {
+              showTree(data.chinese, data.scientific);
+              return;
+            }
+          }
+          showTree(null);
+        };
+        const syncKeys = () => {
+          keys.forward = (held.has("w") || held.has("arrowup") ? 1 : 0) - (held.has("s") || held.has("arrowdown") ? 1 : 0);
+          keys.right = (held.has("d") || held.has("arrowright") ? 1 : 0) - (held.has("a") || held.has("arrowleft") ? 1 : 0);
+        };
+        const onKeyDown = (event) => {
+          if (!running) return;
+          const target = event.target;
+          if (target && target.closest && target.closest("input, textarea, select")) return;
+          const key = event.key.toLowerCase();
+          if (!["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) return;
+          held.add(key);
+          syncKeys();
+          event.preventDefault();
+        };
+        const onKeyUp = (event) => {
+          held.delete(event.key.toLowerCase());
+          syncKeys();
+        };
+        let dragging = false;
+        let previous = { x: 0, y: 0 };
+        let start = { x: 0, y: 0, t: 0 };
+        const onPointerDown = (event) => {
+          if (event.target && event.target.closest && event.target.closest(".joystick-zone")) return;
+          dragging = true;
+          previous = { x: event.clientX, y: event.clientY };
+          start = { x: event.clientX, y: event.clientY, t: Date.now() };
+        };
+        const onPointerMove = (event) => {
+          if (!dragging || !running) return;
+          camera.rotation.y -= (event.clientX - previous.x) * 0.005;
+          camera.rotation.x -= (event.clientY - previous.y) * 0.005;
+          camera.rotation.x = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, camera.rotation.x));
+          previous = { x: event.clientX, y: event.clientY };
+        };
+        const onPointerUp = (event) => {
+          if (!dragging) return;
+          dragging = false;
+          const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+          if (moved < 15 && Date.now() - start.t < 350) pickTree(event.clientX, event.clientY);
+        };
+        const loop = () => {
+          frame = window.requestAnimationFrame(loop);
+          if (!running || sceneCanvas.clientWidth === 0) return;
+          camera.getWorldDirection(lookDirection);
+          lookDirection.y = 0;
+          if (lookDirection.lengthSq() > 0) lookDirection.normalize();
+          strafe.crossVectors(camera.up, lookDirection);
+          if (strafe.lengthSq() > 0) strafe.normalize();
+          const forward = Math.max(-1, Math.min(1, move.forward + keys.forward));
+          const right = Math.max(-1, Math.min(1, move.right + keys.right));
+          if (forward !== 0 || right !== 0) {
+            camera.position.addScaledVector(lookDirection, forward * 0.15);
+            camera.position.addScaledVector(strafe, -right * 0.15);
+            publishPosition();
+          }
+          renderer.render(scene, camera);
+        };
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+        sun.position.set(10, 20, 10);
+        scene.add(sun);
+        createMapFloor(scene, park.lat, park.lng);
+        addTrees(scene, park, spawn.lngScale, spawn.latScale);
+        if (window.nipplejs) {
+          joystick = nipplejs.create({
+            zone: joystickZone,
+            mode: "static",
+            position: { left: "50%", top: "50%" },
+            color: "white",
+          });
+          joystick.on("move", (event, data) => {
+            const payload = data && data.angle ? data : event && event.data;
+            if (!payload || !payload.angle) return;
+            move.forward = Math.sin(payload.angle.radian) * Math.min(payload.force, 1);
+            move.right = Math.cos(payload.angle.radian) * Math.min(payload.force, 1);
+          });
+          joystick.on("end", () => {
+            move.forward = 0;
+            move.right = 0;
+          });
+        }
+        sceneCanvas.addEventListener("pointerdown", onPointerDown);
+        window.addEventListener("pointermove", onPointerMove);
+        window.addEventListener("pointerup", onPointerUp);
+        window.addEventListener("keydown", onKeyDown);
+        window.addEventListener("keyup", onKeyUp);
+        resize();
+        publishPosition();
+        loop();
+        sceneApi = {
+          resize,
+          setRunning(value) { running = value; if (value) resize(); },
+          destroy() {
+            running = false;
+            window.cancelAnimationFrame(frame);
+            window.clearTimeout(tipTimer);
+            sceneCanvas.removeEventListener("pointerdown", onPointerDown);
+            window.removeEventListener("pointermove", onPointerMove);
+            window.removeEventListener("pointerup", onPointerUp);
+            window.removeEventListener("keydown", onKeyDown);
+            window.removeEventListener("keyup", onKeyUp);
+            if (joystick) joystick.destroy();
+            renderer.dispose();
+            renderer.forceContextLoss();
+            sceneCanvas.replaceChildren();
+          },
+        };
+        return true;
+      } catch (error) {
+        console.error("3D 渲染失敗:", error);
+        window.cancelAnimationFrame(frame);
+        if (joystick) joystick.destroy();
+        if (renderer) {
+          renderer.dispose();
+          renderer.forceContextLoss();
+        }
+        sceneCanvas.replaceChildren();
+        sceneApi = null;
+        return false;
+      }
+    }
+
+    function createMapFloor(scene, centerLat, centerLng) {
+      const zoom = 17;
+      const resolution = (156543.03392 * Math.cos((centerLat * Math.PI) / 180)) / 2 ** zoom;
+      const tileXExact = ((centerLng + 180) / 360) * 2 ** zoom;
+      const latRad = (centerLat * Math.PI) / 180;
+      const tileYExact = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * 2 ** zoom;
+      const tileX = Math.floor(tileXExact);
+      const tileY = Math.floor(tileYExact);
+      const offsetX = (tileXExact - tileX) * 256;
+      const offsetY = (tileYExact - tileY) * 256;
+      const canvas = document.createElement("canvas");
+      canvas.width = 768;
+      canvas.height = 768;
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      context.fillStyle = "#4CAF50";
+      context.fillRect(0, 0, 768, 768);
+      const texture = new THREE.CanvasTexture(canvas);
+      const floorSize = 768 * resolution;
+      const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(floorSize, floorSize),
+        new THREE.MeshLambertMaterial({ map: texture, color: 0xdddddd }),
+      );
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.set((384 - (256 + offsetX)) * resolution, 0, (384 - (256 + offsetY)) * resolution);
+      scene.add(floor);
+      for (let dx = -1; dx <= 1; dx += 1) {
+        for (let dy = -1; dy <= 1; dy += 1) {
+          const image = new Image();
+          image.crossOrigin = "anonymous";
+          image.onload = () => {
+            context.drawImage(image, (dx + 1) * 256, (dy + 1) * 256, 256, 256);
+            texture.needsUpdate = true;
+          };
+          image.src = "https://tile.openstreetmap.org/" + zoom + "/" + (tileX + dx) + "/" + (tileY + dy) + ".png";
+        }
+      }
+    }
+
+    function addTrees(scene, park, lngScale, latScale) {
+      const trunkGeo = new THREE.CylinderGeometry(0.3, 0.4, 2, 8);
+      const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5d4037 });
+      const leavesGeo = new THREE.ConeGeometry(1.5, 3.5, 8);
+      const leavesMat = new THREE.MeshLambertMaterial({ color: 0x2e7d32 });
+      park.trees.slice(0, 300).forEach((tree) => {
+        if (!Number.isFinite(tree.lng) || !Number.isFinite(tree.lat)) return;
+        const group = new THREE.Group();
+        const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+        trunk.position.y = 1;
+        const leaves = new THREE.Mesh(leavesGeo, leavesMat);
+        leaves.position.y = 3.5;
+        const data = { chinese: tree.chinese, scientific: tree.scientific };
+        trunk.userData = data;
+        leaves.userData = data;
+        group.add(trunk, leaves);
+        group.position.set((tree.lng - park.lng) * lngScale, 0, -((tree.lat - park.lat) * latScale));
+        scene.add(group);
+      });
+    }
+
+    function enterPark(name) {
+      const park = parks.find((item) => item.name === name);
+      if (!mapBundle || !park) return;
+      mapBundle.map.closePopup();
+      const spawn = spawnInPark(park, playerPos.lat, playerPos.lng, mockGps);
+      virtualPos = { lat: spawn.lat, lng: spawn.lng };
+      currentPark = park;
+      inPark = true;
+      view3d = true;
+      settingsOpen = false;
+      treeTip = null;
+      paintTrees(park);
+      if (mapBundle.map.hasLayer(mapBundle.parksLayer)) mapBundle.map.removeLayer(mapBundle.parksLayer);
+      if (!mapBundle.map.hasLayer(mapBundle.treesLayer)) mapBundle.map.addLayer(mapBundle.treesLayer);
+      mapBundle.map.setView([park.lat, park.lng], 18);
+      updateChrome();
+      const ok = startScene(park);
+      if (!ok) {
+        view3d = false;
+        updateChrome();
+        showToast("3D 場景載入失敗，已切換回 2D 模式");
+        window.setTimeout(() => {
+          mapBundle.map.invalidateSize();
+          mapBundle.map.setView([virtualPos.lat, virtualPos.lng], 19);
+        }, 100);
+        return;
+      }
+      showToast("已成功進入「" + park.name + "」");
+    }
+
+    function leavePark() {
+      inPark = false;
+      view3d = false;
+      currentPark = null;
+      treeTip = null;
+      destroyScene();
+      if (mapBundle) {
+        if (mapBundle.map.hasLayer(mapBundle.treesLayer)) mapBundle.map.removeLayer(mapBundle.treesLayer);
+        if (!mapBundle.map.hasLayer(mapBundle.parksLayer)) mapBundle.map.addLayer(mapBundle.parksLayer);
+        window.setTimeout(() => {
+          mapBundle.map.invalidateSize();
+          mapBundle.map.setView([playerPos.lat, playerPos.lng], 16);
+        }, 100);
+      }
+      updateChrome();
+      showToast("已離開公園");
+    }
+
+    function switchView() {
+      view3d = !view3d;
+      treeTip = null;
+      updateChrome();
+      if (view3d && currentPark && !sceneApi) {
+        if (!startScene(currentPark)) {
+          view3d = false;
+          updateChrome();
+          showToast("3D 場景載入失敗，已切換回 2D 模式");
+        }
+      }
+      if (!view3d && mapBundle) {
+        window.setTimeout(() => {
+          mapBundle.map.invalidateSize();
+          mapBundle.map.setView([virtualPos.lat, virtualPos.lng], 19);
+        }, 100);
+      }
+    }
+
+    function locate() {
+      if (!mapBundle) return;
+      mapBundle.map.invalidateSize();
+      mapBundle.map.flyTo([playerPos.lat, playerPos.lng], 17);
+      showToast("📍 已置中目前位置");
+    }
+
+    function setPlayer(next) {
+      player = next;
+      savePlayer(player);
+      renderHud();
+      if ($("checkin-modal").classList.contains("show")) renderCheckin();
+      if ($("garden-modal").classList.contains("show")) renderGarden();
+      if ($("cards-modal").classList.contains("show")) renderCards();
+    }
+
+    function collect(rawName) {
+      const outcome = collectSpecies(player, rawName);
+      if (outcome.result.kind === "empty") {
+        showToast("請輸入中文品種名稱");
+        return false;
+      }
+      setPlayer(outcome.player);
+      if (outcome.result.kind === "duplicate") {
+        showToast("獲得重複卡牌「" + outcome.result.name + "」，轉換為 1 袋肥料 🌱");
+        return true;
+      }
+      showToast("成功收集新樹木！獲得 2 袋肥料 🌱");
+      $("reveal-name").textContent = outcome.result.name;
+      openModal("reveal");
+      if (inPark && !view3d && currentPark) paintTrees(currentPark);
+      return true;
+    }
+
+    function renderCheckin() {
+      const preview = checkInPreview(player);
+      const shown = preview.already ? preview.streak : liveStreak(player);
+      $("checkin-streak").textContent = "連續簽到：" + shown + " 天";
+      const note = $("checkin-note");
+      note.hidden = !preview.broken;
+      note.textContent = "昨日未簽到，這次會從第 1 天重新計算。";
+      const week = $("checkin-week");
+      week.replaceChildren();
+      CHECKIN_REWARDS.forEach((reward, index) => {
+        const claimed = preview.already ? index <= preview.dayIndex : index < preview.dayIndex;
+        const cell = document.createElement("div");
+        cell.className = "checkin-day" + (claimed ? " done" : "") + (index === preview.dayIndex ? " today" : "");
+        const label = document.createElement("span");
+        label.textContent = "第" + (index + 1) + "天";
+        const strong = document.createElement("strong");
+        strong.textContent = reward + "🌱";
+        cell.append(label, strong);
+        week.appendChild(cell);
+      });
+      const button = $("checkin-confirm");
+      button.disabled = preview.already;
+      button.classList.toggle("is-done", preview.already);
+      button.textContent = preview.already ? "今日已簽到" : "領取 " + preview.reward + " 袋肥料";
+    }
+
+    function onCheckIn() {
+      const outcome = checkIn(player);
+      if (outcome.already) {
+        showToast("今日已經簽到過了！");
+        renderCheckin();
+        return;
+      }
+      setPlayer(outcome.player);
+      showToast("簽到成功！連續 " + outcome.streak + " 天，獲得 " + outcome.reward + " 袋肥料 🌱");
+    }
+
+    function renderGarden() {
+      const body = $("garden-body");
+      body.replaceChildren();
+      if (!player.collectedSpecies.length) {
+        const empty = document.createElement("p");
+        empty.className = "empty-copy";
+        empty.textContent = "尚未收集任何樹木，先去掃描吧！";
+        body.appendChild(empty);
+        return;
+      }
+      const grid = document.createElement("div");
+      grid.className = "garden-grid";
+      player.collectedSpecies.forEach((species) => {
+        const level = player.treeLevels[species] || 1;
+        const maxed = level >= 5;
+        const card = document.createElement("article");
+        card.className = "garden-card";
+        const icon = document.createElement("span");
+        icon.className = "stage-icon";
+        icon.textContent = STAGE_ICONS[level - 1] || STAGE_ICONS[0];
+        const title = document.createElement("h4");
+        title.textContent = species;
+        const levelText = document.createElement("div");
+        levelText.className = "level-text";
+        levelText.textContent = "Lv." + level + " : " + (STAGE_NAMES[level - 1] || STAGE_NAMES[0]);
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "upgrade-btn" + (maxed ? " max" : "");
+        button.disabled = maxed;
+        button.dataset.species = species;
+        button.textContent = maxed ? "已達最高級" : "升級 (消耗 1 🌱)";
+        card.append(icon, title, levelText, button);
+        grid.appendChild(card);
+      });
+      body.appendChild(grid);
+    }
+
+    function onUpgrade(species) {
+      const outcome = upgradeTree(player, species);
+      if (!outcome.ok && outcome.reason === "max") {
+        showToast("這棵樹已經長到最大囉！");
+        return;
+      }
+      if (!outcome.ok) {
+        showToast("❌ 肥料不足！請先簽到或掃描樹木。");
+        return;
+      }
+      setPlayer(outcome.player);
+      showToast("✨ 升級成功！" + species + " 長大成為「" + outcome.stage + "」了！");
+    }
+
+    function renderCards() {
+      const body = $("cards-body");
+      body.replaceChildren();
+      if (!player.collectedSpecies.length) {
+        const empty = document.createElement("p");
+        empty.className = "empty-copy";
+        empty.textContent = "尚未收集任何卡牌，快去掃描吧！";
+        body.appendChild(empty);
+        return;
+      }
+      const grid = document.createElement("div");
+      grid.className = "card-grid";
+      player.collectedSpecies.forEach((species) => {
+        const card = document.createElement("article");
+        card.className = "tcg-card";
+        const icon = document.createElement("span");
+        icon.className = "card-icon";
+        icon.textContent = "🌳";
+        const name = document.createElement("span");
+        name.textContent = species;
+        card.append(icon, name);
+        grid.appendChild(card);
+      });
+      for (let index = 0; index < 3; index += 1) {
+        const locked = document.createElement("article");
+        locked.className = "tcg-card locked";
+        const icon = document.createElement("span");
+        icon.className = "card-icon";
+        icon.textContent = "❓";
+        const name = document.createElement("span");
+        name.textContent = "未解鎖";
+        locked.append(icon, name);
+        grid.appendChild(locked);
+      }
+      body.appendChild(grid);
+    }
+
+    function openModal(name) {
+      menuOpen = false;
+      $(name + "-modal").classList.add("show");
+      updateChrome();
+    }
+
+    function closeModal(name) {
+      $(name + "-modal").classList.remove("show");
+      if (name === "scan") void stopScan();
+    }
+
+    function resetGame() {
+      localStorage.removeItem(STORAGE_KEY);
+      player = emptyPlayer();
+      settingsOpen = false;
+      closeModal("reset");
+      renderHud();
+      renderGps();
+      if (currentPark) paintTrees(currentPark);
+      updateChrome();
+      showToast("🗑️ 遊戲資料已完全重設");
+    }
+
+    function startGps() {
+      if (watchId != null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+      if (mockGps || !navigator.geolocation) return;
+      watchId = navigator.geolocation.watchPosition((position) => {
+        if (mockGps) return;
+        movePlayer(position.coords.latitude, position.coords.longitude);
+        gpsLocked = true;
+        gps = { kind: "ok", lat: playerPos.lat, lng: playerPos.lng };
+        renderGps();
+        if (!appliedLock && mapBundle && !inPark) {
+          mapBundle.map.invalidateSize();
+          mapBundle.map.setView([playerPos.lat, playerPos.lng], 16);
+          appliedLock = true;
+        }
+      }, (error) => {
+        if (mockGps) return;
+        if (error.code === 1) gps = { kind: "error", text: "❌ 權限被拒絕" };
+        else if (error.code === 2) gps = { kind: "error", text: "❌ 無法獲取訊號" };
+        else if (error.code === 3) gps = { kind: "error", text: "❌ 連線超時" };
+        else gps = { kind: "error", text: "❌ " + error.message };
+        renderGps();
+      }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 });
+    }
+
+    function setScanMessage(notice) {
+      const node = $("scan-message");
+      node.replaceChildren();
+      if (notice.kind === "error") {
+        const title = document.createElement("span");
+        title.className = "gps-bad";
+        title.textContent = notice.title;
+        node.append(title, document.createElement("br"), document.createTextNode(notice.detail));
+        return;
+      }
+      node.append(document.createTextNode(notice.text));
+      if (notice.kind === "loading") {
+        const spinner = document.createElement("span");
+        spinner.className = "spinner spinner-small";
+        node.appendChild(spinner);
+      }
+    }
+
+    async function fetchTreeName(url) {
+      try {
+        const response = await fetch(TREE_API + encodeURIComponent(url));
+        if (!response.ok) return null;
+        const data = await response.json();
+        if (!data.name || data.name === "未知樹木") return null;
+        const cleanName = cleanSpeciesName((data.name.split(/[,，、/]/)[0]) || "");
+        return cleanName || null;
+      } catch (error) {
+        console.error("呼叫 API 失敗:", error);
+        return null;
+      }
+    }
+
+    async function stopScan() {
+      scanSession += 1;
+      videoTrack = null;
+      $("zoom-box").hidden = true;
+      const scanner = qrScanner;
+      qrScanner = null;
+      if (!scanner) return;
+      try { await scanner.stop(); } catch { /* already stopped */ }
+      try { scanner.clear(); } catch { /* reader already empty */ }
+    }
+
+    async function startScan() {
+      const session = ++scanSession;
+      qrScanner = null;
+      videoTrack = null;
+      $("zoom-box").hidden = true;
+      $("reader").replaceChildren();
+      setScanMessage({ kind: "text", text: "正在請求相機權限..." });
+      try {
+        if (!window.isSecureContext) {
+          setScanMessage({ kind: "error", title: "❌ 瀏覽器安全限制", detail: "必須使用 HTTPS" });
+          return;
+        }
+        let timedOut = false;
+        const stream = await Promise.race([
+          navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then((opened) => {
+            if (session !== scanSession || timedOut) opened.getTracks().forEach((track) => track.stop());
+            return opened;
+          }),
+          new Promise((_, reject) => {
+            window.setTimeout(() => {
+              timedOut = true;
+              reject(new DOMException("相機啟動逾時", "TimeoutError"));
+            }, 12000);
+          }),
+        ]);
+        stream.getTracks().forEach((track) => track.stop());
+        if (session !== scanSession) return;
+        setScanMessage({ kind: "text", text: "相機啟動中..." });
+        await new Promise((resolve) => window.requestAnimationFrame(resolve));
+        if (session !== scanSession || typeof Html5Qrcode === "undefined") return;
+        const qr = new Html5Qrcode("reader");
+        qrScanner = qr;
+        await qr.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: 250 },
+          async (decodedText) => {
+            if (session !== scanSession) return;
+            await qr.stop().catch(() => undefined);
+            if (qrScanner === qr) qrScanner = null;
+            $("zoom-box").hidden = true;
+            if (decodedText.startsWith("http://") || decodedText.startsWith("https://")) {
+              setScanMessage({ kind: "loading", text: "正在分析網址中的樹木資料..." });
+              const name = await fetchTreeName(decodedText);
+              if (session !== scanSession) return;
+              closeModal("scan");
+              if (name) collect(name);
+              else {
+                showToast("網站阻擋了自動讀取，請看著樹牌手動輸入");
+                openManual();
+              }
+            } else {
+              closeModal("scan");
+              collect(decodedText);
+            }
+          },
+          () => undefined,
+        );
+        if (session !== scanSession) {
+          await qr.stop().catch(() => undefined);
+          return;
+        }
+        setScanMessage({ kind: "text", text: "請將鏡頭對準樹上的 QR Code" });
+        window.setTimeout(() => {
+          if (session !== scanSession) return;
+          const video = document.querySelector("#reader video");
+          const track = video && video.srcObject instanceof MediaStream ? video.srcObject.getVideoTracks()[0] : undefined;
+          const capabilities = track && track.getCapabilities ? track.getCapabilities() : null;
+          if (!track || !capabilities || !capabilities.zoom) return;
+          videoTrack = track;
+          const settings = track.getSettings ? track.getSettings() : {};
+          const slider = $("zoom-slider");
+          slider.min = String(capabilities.zoom.min || 1);
+          slider.max = String(capabilities.zoom.max || 5);
+          slider.step = String(capabilities.zoom.step || 0.1);
+          slider.value = String(settings.zoom || 1);
+          $("zoom-box").hidden = false;
+        }, 500);
+      } catch (error) {
+        if (session !== scanSession) return;
+        const name = error && error.name ? error.name : "";
+        const message = error && error.message ? error.message : "未知錯誤";
+        if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+          setScanMessage({ kind: "error", title: "❌ 您拒絕了相機權限", detail: "請在瀏覽器設定中重新允許。" });
+        } else if (!window.isSecureContext) {
+          setScanMessage({ kind: "error", title: "❌ 瀏覽器安全限制", detail: "必須使用 HTTPS" });
+        } else {
+          setScanMessage({ kind: "error", title: "❌ 找不到相機或發生錯誤", detail: message });
+        }
+      }
+    }
+
+    function openManual() {
+      $("species-input").value = "";
+      const error = $("species-error");
+      error.hidden = true;
+      error.textContent = "";
+      $("species-input").removeAttribute("aria-invalid");
+      openModal("manual");
+    }
+
+    function confirmManual() {
+      const value = $("species-input").value;
+      if (!value.trim()) {
+        const error = $("species-error");
+        error.hidden = false;
+        error.textContent = "請輸入中文品種名稱";
+        $("species-input").setAttribute("aria-invalid", "true");
+        return;
+      }
+      if (collect(value)) closeModal("manual");
+    }
+
+    settingsBtn.addEventListener("click", () => {
+      settingsOpen = !settingsOpen;
+      updateChrome();
+    });
+    switchBtn.addEventListener("click", switchView);
+    leaveBtn.addEventListener("click", leavePark);
+    locateBtn.addEventListener("click", locate);
+    menuBtn.addEventListener("click", () => {
+      menuOpen = !menuOpen;
+      updateChrome();
+    });
+    mockInput.addEventListener("change", () => {
+      mockGps = mockInput.checked;
+      if (mockGps) gps = { kind: "mock" };
+      else if (!navigator.geolocation) gps = { kind: "error", text: "❌ 不支援 GPS 定位" };
+      else gps = { kind: "searching" };
+      renderGps();
+      updateChrome();
+      startGps();
+    });
+    parkSelect.addEventListener("change", () => {
+      if (!parkSelect.value || !mockGps) return;
+      const park = parks.find((item) => item.name === parkSelect.value);
+      if (!park) return;
+      movePlayer(park.lat, park.lng);
+      if (mapBundle) mapBundle.map.flyTo([park.lat, park.lng], 16);
+    });
+    $("reset-btn").addEventListener("click", () => openModal("reset"));
+    $("reset-confirm").addEventListener("click", resetGame);
+    checkinMenuBtn.addEventListener("click", () => { renderCheckin(); openModal("checkin"); });
+    $("checkin-confirm").addEventListener("click", onCheckIn);
+    $("garden-menu-btn").addEventListener("click", () => { renderGarden(); openModal("garden"); });
+    $("garden-body").addEventListener("click", (event) => {
+      const button = event.target.closest(".upgrade-btn");
+      if (!button || !button.dataset.species) return;
+      onUpgrade(button.dataset.species);
+    });
+    $("cards-menu-btn").addEventListener("click", () => { renderCards(); openModal("cards"); });
+    $("real-scan-btn").addEventListener("click", () => { openModal("scan"); void startScan(); });
+    $("manual-scan-btn").addEventListener("click", openManual);
+    $("manual-confirm").addEventListener("click", confirmManual);
+    $("species-input").addEventListener("input", () => {
+      $("species-error").hidden = true;
+      $("species-input").removeAttribute("aria-invalid");
+    });
+    $("species-input").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") confirmManual();
+    });
+    $("zoom-slider").addEventListener("input", () => {
+      const value = Number($("zoom-slider").value);
+      if (!videoTrack) return;
+      videoTrack.applyConstraints({ advanced: [{ zoom: value }] }).catch((error) => {
+        console.warn("無法應用縮放:", error);
+      });
+    });
+    retryBtn.addEventListener("click", () => { void loadData(); });
+    document.querySelectorAll("[data-close]").forEach((button) => {
+      button.addEventListener("click", () => closeModal(button.dataset.close));
+    });
+    document.querySelectorAll(".modal-backdrop").forEach((backdrop) => {
+      backdrop.addEventListener("click", (event) => {
+        if (event.target !== backdrop) return;
+        const name = backdrop.id.replace("-modal", "");
+        closeModal(name);
+      });
+    });
+
+    renderHud();
+    renderGps();
+    updateChrome();
+    startGps();
+    void loadData();
+  </script>
+</body>
+</html>
