@@ -51,7 +51,7 @@
       min-width: 200px; padding: 12px 24px; border: 2px solid #27ae60;
       border-radius: 12px; background: rgba(255, 255, 255, 0.95);
       box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2); text-align: center;
-      transform: translateX(-50%); pointer-events: none;
+      transform: translateX(-50%); pointer-events: auto;
     }
     .tree-info-panel[hidden] { display: none; }
     .tree-info-panel h4 { margin: 0 0 5px; color: #27ae60; font-size: 18px; }
@@ -211,6 +211,21 @@
     .zoom-box { margin-top: 15px; text-align: center; }
     .zoom-label { display: block; margin-bottom: 8px; color: #27ae60; font-weight: 700; }
     .zoom-box input[type="range"] { width: 100%; accent-color: #27ae60; }
+    .zoom-hint, .nearby-copy { margin: 8px 0 0; color: #666; font-size: 13px; text-align: center; }
+    .nearby-box {
+      margin-top: 12px; padding: 10px; border-radius: 10px; background: #f4fbf7;
+    }
+    .nearby-tree {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      margin-top: 8px; text-align: left; font-size: 13px; font-weight: 700; color: #1e8449;
+    }
+    .nearby-tree span { min-width: 0; }
+    .nearby-tree button, .tree-checkin-btn {
+      flex: 0 0 auto; border: 0; border-radius: 999px; background: #27ae60; color: #fff;
+      padding: 8px 12px; font-size: 13px; font-weight: 700;
+    }
+    .tree-checkin-btn { width: 100%; margin-top: 8px; border-radius: 8px; }
+    .qr-reader video { transform-origin: center center; }
     .modal-actions { display: flex; gap: 10px; margin-top: 14px; }
     .modal-actions button, .cancel-btn, .confirm-btn, .reveal-close {
       flex: 1; border: 0; border-radius: 8px; padding: 12px; font-size: 15px; font-weight: 700;
@@ -291,6 +306,8 @@
       <div id="tree-info" class="tree-info-panel" hidden>
         <h4 id="tree-name"></h4>
         <p id="tree-sci"></p>
+        <p id="tree-reach" class="zoom-hint" hidden></p>
+        <button type="button" id="tree-checkin-btn" class="tree-checkin-btn" hidden>簽到這棵樹</button>
       </div>
     </div>
 
@@ -347,9 +364,14 @@
     <div class="game-modal" role="dialog" aria-modal="true" aria-labelledby="scan-title">
       <h2 id="scan-title">掃描樹木 QR Code</h2>
       <div id="reader" class="qr-reader"></div>
-      <div id="zoom-box" class="zoom-box" hidden>
-        <label for="zoom-slider" class="zoom-label">🔍 鏡頭縮放</label>
-        <input id="zoom-slider" type="range" min="1" max="5" step="0.1" value="1">
+      <div id="zoom-box" class="zoom-box">
+        <label for="zoom-slider" class="zoom-label">🔍 鏡頭縮放 <span id="zoom-readout">1×</span> / 10×</label>
+        <input id="zoom-slider" type="range" min="1" max="10" step="0.1" value="1">
+        <p class="zoom-hint">在小徑上把花圃裡的樹牌放大來看。</p>
+      </div>
+      <div id="nearby-box" class="nearby-box">
+        <p id="nearby-copy" class="nearby-copy">15 公尺內的樹木可以簽到。</p>
+        <div id="nearby-list"></div>
       </div>
       <div id="scan-message" class="scan-message">正在請求相機權限...</div>
       <div class="modal-actions">
@@ -447,6 +469,8 @@
     const TREE_DATA_URL = "./Trees_Major_Parks_Trees_Major_Parks_converted.geojson";
     const TREE_API = "https://dendro-hunter.vercel.app/api/get-tree?url=";
     const CHECKIN_REWARDS = [1, 1, 2, 2, 2, 2, 3];
+    const CAMERA_ZOOM_MAX = 10;
+    const TREE_REACH_METERS = 15;
     const STAGE_ICONS = ["🌱", "🌿", "🪴", "🌳", "🌲"];
     const STAGE_NAMES = ["幼苗", "小樹苗", "成長期", "大樹", "巨木"];
     const HONG_KONG = { lat: 22.3193, lng: 114.1694 };
@@ -656,6 +680,102 @@
       };
     }
 
+    function metersBetween(aLat, aLng, bLat, bLng) {
+      const latScale = 111000;
+      const lngScale = 111000 * Math.cos((((aLat + bLat) / 2) * Math.PI) / 180);
+      return Math.hypot((aLng - bLng) * lngScale, (aLat - bLat) * latScale);
+    }
+
+    function reachOrigins() {
+      const origins = [];
+      if (gps.kind === "ok" || mockPlaced) origins.push(playerPos);
+      if (inPark) origins.push(virtualPos);
+      return origins;
+    }
+
+    function distanceToTree(tree) {
+      const origins = reachOrigins();
+      if (!tree || !origins.length || !Number.isFinite(tree.lat) || !Number.isFinite(tree.lng)) return Infinity;
+      let best = Infinity;
+      origins.forEach((origin) => {
+        best = Math.min(best, metersBetween(origin.lat, origin.lng, tree.lat, tree.lng));
+      });
+      return best;
+    }
+
+    function treesInReach() {
+      const origins = reachOrigins();
+      if (!origins.length) return [];
+      const groups = inPark && currentPark ? [currentPark] : parks;
+      const found = [];
+      groups.forEach((park) => {
+        park.trees.forEach((tree) => {
+          let best = Infinity;
+          origins.forEach((origin) => {
+            best = Math.min(best, metersBetween(origin.lat, origin.lng, tree.lat, tree.lng));
+          });
+          if (best <= TREE_REACH_METERS) found.push({ tree, distance: best });
+        });
+      });
+      found.sort((a, b) => a.distance - b.distance);
+      return found;
+    }
+
+    function speciesInReach(rawName) {
+      const clean = cleanSpeciesName(rawName);
+      if (!clean) return null;
+      return treesInReach().find((item) => cleanSpeciesName(item.tree.chinese) === clean) || null;
+    }
+
+    function checkInTree(tree) {
+      if (distanceToTree(tree) > TREE_REACH_METERS) {
+        showToast("這棵樹超過 15 公尺，請沿小徑再靠近一點。");
+        renderNearby();
+        return false;
+      }
+      const ok = collect(tree.chinese);
+      renderNearby();
+      return ok;
+    }
+
+    function renderNearby() {
+      const copy = $("nearby-copy");
+      const list = $("nearby-list");
+      if (!copy || !list) return;
+      list.replaceChildren();
+      if (!reachOrigins().length) {
+        copy.textContent = "請先允許定位，或用虛擬 GPS 傳到公園，再靠近樹木 15 公尺內簽到。";
+        return;
+      }
+      const nearby = treesInReach().slice(0, 5);
+      if (!nearby.length) {
+        copy.textContent = "15 公尺內沒有樹木。請沿小徑再靠近一點，不用踏入花圃。";
+        return;
+      }
+      copy.textContent = "15 公尺內可以簽到（不用踏入花圃）：";
+      nearby.forEach((item) => {
+        const row = document.createElement("div");
+        row.className = "nearby-tree";
+        const label = document.createElement("span");
+        label.textContent = item.tree.chinese + " · " + Math.max(1, Math.round(item.distance)) + " 公尺";
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = "簽到這棵樹";
+        button.addEventListener("click", () => checkInTree(item.tree));
+        row.append(label, button);
+        list.appendChild(row);
+      });
+    }
+
+    function scheduleNearby() {
+      if (!$("scan-modal").classList.contains("show") && treeInfo.hidden) return;
+      window.clearTimeout(nearbyTimer);
+      nearbyTimer = window.setTimeout(() => {
+        if ($("scan-modal").classList.contains("show")) renderNearby();
+        if (treeTip) renderTreeTip();
+      }, 250);
+    }
+
     function escapeHtml(value) {
       return String(value).replace(/[&<>"']/g, (char) => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -686,6 +806,9 @@
     let scanSession = 0;
     let qrScanner = null;
     let videoTrack = null;
+    let hardwareZoom = null;
+    let mockPlaced = false;
+    let nearbyTimer = 0;
 
     function showToast(message) {
       const toast = $("toast");
@@ -722,6 +845,20 @@
       treeInfo.hidden = false;
       $("tree-name").textContent = treeTip.chinese || "未知品種";
       $("tree-sci").textContent = treeTip.scientific || "";
+      const reach = $("tree-reach");
+      const button = $("tree-checkin-btn");
+      const distance = distanceToTree(treeTip);
+      reach.hidden = false;
+      if (!Number.isFinite(distance)) {
+        reach.textContent = "請先定位，再到樹木 15 公尺內簽到。";
+        button.hidden = true;
+      } else if (distance <= TREE_REACH_METERS) {
+        reach.textContent = "距離約 " + Math.max(1, Math.round(distance)) + " 公尺，可在小徑上簽到。";
+        button.hidden = false;
+      } else {
+        reach.textContent = "距離約 " + Math.round(distance) + " 公尺，請再靠近到 15 公尺內。";
+        button.hidden = true;
+      }
     }
 
     function updateChrome() {
@@ -776,7 +913,12 @@
           fillColor: known ? "#2ecc71" : "#bdc3c7",
           fillOpacity: 0.9,
         });
-        circle.bindPopup("<b>" + escapeHtml(tree.chinese || "未知品種") + "</b><br><small>" + escapeHtml(tree.scientific) + "</small>");
+        circle.bindPopup(
+          "<b>" + escapeHtml(tree.chinese || "未知品種") + "</b><br><small>" + escapeHtml(tree.scientific) +
+          "</small><br><button type=\"button\" class=\"enter-park-btn\" data-tree-name=\"" +
+          encodeURIComponent(tree.chinese) + "\" data-lat=\"" + tree.lat + "\" data-lng=\"" + tree.lng +
+          "\">簽到這棵樹</button><div class=\"park-popup-count\">15 公尺內可簽到，不用踏入花圃</div>"
+        );
         circle.addTo(mapBundle.treesLayer);
       });
       mapBundle.virtualMarker.setLatLng([virtualPos.lat, virtualPos.lng]);
@@ -817,11 +959,24 @@
         radius: 7, color: "#fff", weight: 2, fillColor: "#e74c3c", fillOpacity: 1,
       }).bindPopup("<b>🚶 你的虛擬位置</b>");
       map.on("popupopen", (event) => {
-        const button = event.popup.getElement() && event.popup.getElement().querySelector("[data-park]");
-        if (!button) return;
-        button.addEventListener("click", () => {
-          enterPark(decodeURIComponent(button.dataset.park));
-        }, { once: true });
+        const popup = event.popup.getElement();
+        if (!popup) return;
+        const parkButton = popup.querySelector("[data-park]");
+        if (parkButton) {
+          parkButton.addEventListener("click", () => {
+            enterPark(decodeURIComponent(parkButton.dataset.park));
+          }, { once: true });
+        }
+        const treeButton = popup.querySelector("[data-tree-name]");
+        if (treeButton) {
+          treeButton.addEventListener("click", () => {
+            checkInTree({
+              chinese: decodeURIComponent(treeButton.dataset.treeName || ""),
+              lat: Number(treeButton.dataset.lat),
+              lng: Number(treeButton.dataset.lng),
+            });
+          }, { once: true });
+        }
       });
       mapBundle = { map, parksLayer, treesLayer, playerMarker, virtualMarker };
       window.setTimeout(() => map.invalidateSize(), 50);
@@ -914,10 +1069,11 @@
             lng: park.lng + camera.position.x / spawn.lngScale,
           };
           if (mapBundle) mapBundle.virtualMarker.setLatLng([virtualPos.lat, virtualPos.lng]);
+          scheduleNearby();
         };
-        const showTree = (chinese, scientific) => {
+        const showTree = (chinese, scientific, lat, lng) => {
           window.clearTimeout(tipTimer);
-          treeTip = chinese ? { chinese, scientific: scientific || "" } : null;
+          treeTip = chinese ? { chinese, scientific: scientific || "", lat, lng } : null;
           renderTreeTip();
           if (chinese) tipTimer = window.setTimeout(() => { treeTip = null; renderTreeTip(); }, 3000);
         };
@@ -931,7 +1087,7 @@
           for (const hit of hits) {
             const data = hit.object.userData || {};
             if (data.chinese) {
-              showTree(data.chinese, data.scientific);
+              showTree(data.chinese, data.scientific, data.lat, data.lng);
               return;
             }
           }
@@ -1111,7 +1267,7 @@
         trunk.position.y = 1;
         const leaves = new THREE.Mesh(leavesGeo, leavesMat);
         leaves.position.y = 3.5;
-        const data = { chinese: tree.chinese, scientific: tree.scientific };
+        const data = { chinese: tree.chinese, scientific: tree.scientific, lat: tree.lat, lng: tree.lng };
         trunk.userData = data;
         leaves.userData = data;
         group.add(trunk, leaves);
@@ -1386,6 +1542,7 @@
           mapBundle.map.setView([playerPos.lat, playerPos.lng], 16);
           appliedLock = true;
         }
+        scheduleNearby();
       }, (error) => {
         if (mockGps) return;
         if (error.code === 1) gps = { kind: "error", text: "❌ 權限被拒絕" };
@@ -1431,7 +1588,7 @@
     async function stopScan() {
       scanSession += 1;
       videoTrack = null;
-      $("zoom-box").hidden = true;
+      hardwareZoom = null;
       const scanner = qrScanner;
       qrScanner = null;
       if (!scanner) return;
@@ -1443,8 +1600,11 @@
       const session = ++scanSession;
       qrScanner = null;
       videoTrack = null;
-      $("zoom-box").hidden = true;
+      hardwareZoom = null;
+      $("zoom-slider").value = "1";
+      applyCameraZoom(1);
       $("reader").replaceChildren();
+      renderNearby();
       setScanMessage({ kind: "text", text: "正在請求相機權限..." });
       try {
         if (!window.isSecureContext) {
@@ -1469,33 +1629,46 @@
         setScanMessage({ kind: "text", text: "相機啟動中..." });
         await new Promise((resolve) => window.requestAnimationFrame(resolve));
         if (session !== scanSession || typeof Html5Qrcode === "undefined") return;
-        const qr = new Html5Qrcode("reader");
+        let qr = new Html5Qrcode("reader");
         qrScanner = qr;
-        await qr.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: 250 },
-          async (decodedText) => {
+        const onScan = async (decodedText) => {
+          if (session !== scanSession) return;
+          const active = qrScanner;
+          if (active) await active.stop().catch(() => undefined);
+          if (qrScanner === active) qrScanner = null;
+          if (decodedText.startsWith("http://") || decodedText.startsWith("https://")) {
+            setScanMessage({ kind: "loading", text: "正在分析網址中的樹木資料..." });
+            const name = await fetchTreeName(decodedText);
             if (session !== scanSession) return;
-            await qr.stop().catch(() => undefined);
-            if (qrScanner === qr) qrScanner = null;
-            $("zoom-box").hidden = true;
-            if (decodedText.startsWith("http://") || decodedText.startsWith("https://")) {
-              setScanMessage({ kind: "loading", text: "正在分析網址中的樹木資料..." });
-              const name = await fetchTreeName(decodedText);
-              if (session !== scanSession) return;
-              closeModal("scan");
-              if (name) collect(name);
-              else {
-                showToast("網站阻擋了自動讀取，請看著樹牌手動輸入");
-                openManual();
-              }
-            } else {
-              closeModal("scan");
-              collect(decodedText);
+            closeModal("scan");
+            if (name && speciesInReach(name)) collect(name);
+            else if (name) showToast("這棵樹超過 15 公尺，請沿小徑再靠近一點。");
+            else {
+              showToast("網站阻擋了自動讀取，請看著樹牌手動輸入");
+              openManual();
             }
-          },
-          () => undefined,
-        );
+          } else {
+            closeModal("scan");
+            if (speciesInReach(decodedText)) collect(decodedText);
+            else showToast("這棵樹超過 15 公尺，請沿小徑再靠近一點。");
+          }
+        };
+        const scanConfig = { fps: 10, qrbox: 250 };
+        try {
+          await qr.start(
+            { facingMode: "environment" },
+            { ...scanConfig, videoConstraints: { facingMode: "environment", advanced: [{ zoom: 1 }] } },
+            onScan,
+            () => undefined,
+          );
+        } catch (startError) {
+          if (session !== scanSession) return;
+          try { await qr.stop(); } catch { /* not started */ }
+          try { qr.clear(); } catch { /* reader already clear */ }
+          qr = new Html5Qrcode("reader");
+          qrScanner = qr;
+          await qr.start({ facingMode: "environment" }, scanConfig, onScan, () => undefined);
+        }
         if (session !== scanSession) {
           await qr.stop().catch(() => undefined);
           return;
@@ -1506,15 +1679,18 @@
           const video = document.querySelector("#reader video");
           const track = video && video.srcObject instanceof MediaStream ? video.srcObject.getVideoTracks()[0] : undefined;
           const capabilities = track && track.getCapabilities ? track.getCapabilities() : null;
-          if (!track || !capabilities || !capabilities.zoom) return;
-          videoTrack = track;
-          const settings = track.getSettings ? track.getSettings() : {};
-          const slider = $("zoom-slider");
-          slider.min = String(capabilities.zoom.min || 1);
-          slider.max = String(capabilities.zoom.max || 5);
-          slider.step = String(capabilities.zoom.step || 0.1);
-          slider.value = String(settings.zoom || 1);
-          $("zoom-box").hidden = false;
+          if (track && capabilities && capabilities.zoom) {
+            videoTrack = track;
+            hardwareZoom = {
+              min: Number(capabilities.zoom.min) || 1,
+              max: Number(capabilities.zoom.max) || CAMERA_ZOOM_MAX,
+              step: Number(capabilities.zoom.step) || 0.1,
+            };
+          } else if (track) {
+            videoTrack = track;
+            hardwareZoom = null;
+          }
+          applyCameraZoom(Number($("zoom-slider").value) || 1);
         }, 500);
       } catch (error) {
         if (session !== scanSession) return;
@@ -1541,14 +1717,43 @@
 
     function confirmManual() {
       const value = $("species-input").value;
+      const error = $("species-error");
       if (!value.trim()) {
-        const error = $("species-error");
         error.hidden = false;
         error.textContent = "請輸入中文品種名稱";
         $("species-input").setAttribute("aria-invalid", "true");
         return;
       }
+      if (!speciesInReach(value)) {
+        error.hidden = false;
+        error.textContent = "請走到該樹木 15 公尺內再簽到。花圃裡的樹在小徑上也可以。";
+        $("species-input").setAttribute("aria-invalid", "true");
+        return;
+      }
       if (collect(value)) closeModal("manual");
+    }
+
+    function applyCameraZoom(value) {
+      const zoom = Math.max(1, Math.min(CAMERA_ZOOM_MAX, Number(value) || 1));
+      const readout = $("zoom-readout");
+      if (readout) readout.textContent = zoom.toFixed(1).replace(/\.0$/, "") + "×";
+      const slider = $("zoom-slider");
+      slider.min = "1";
+      slider.max = String(CAMERA_ZOOM_MAX);
+      slider.step = "0.1";
+      let hardware = 1;
+      if (videoTrack && hardwareZoom) {
+        hardware = Math.max(hardwareZoom.min, Math.min(hardwareZoom.max, zoom));
+        videoTrack.applyConstraints({ advanced: [{ zoom: hardware }] }).catch((error) => {
+          console.warn("無法應用縮放:", error);
+        });
+      }
+      const video = document.querySelector("#reader video");
+      if (video) {
+        const digital = hardware > 0 ? zoom / hardware : zoom;
+        video.style.transformOrigin = "center center";
+        video.style.transform = digital > 1.01 ? "scale(" + digital + ")" : "";
+      }
     }
 
     settingsBtn.addEventListener("click", () => {
@@ -1575,8 +1780,10 @@
       if (!parkSelect.value || !mockGps) return;
       const park = parks.find((item) => item.name === parkSelect.value);
       if (!park) return;
+      mockPlaced = true;
       movePlayer(park.lat, park.lng);
       if (mapBundle) mapBundle.map.flyTo([park.lat, park.lng], 16);
+      scheduleNearby();
     });
     $("reset-btn").addEventListener("click", () => openModal("reset"));
     $("reset-confirm").addEventListener("click", resetGame);
@@ -1600,11 +1807,10 @@
       if (event.key === "Enter") confirmManual();
     });
     $("zoom-slider").addEventListener("input", () => {
-      const value = Number($("zoom-slider").value);
-      if (!videoTrack) return;
-      videoTrack.applyConstraints({ advanced: [{ zoom: value }] }).catch((error) => {
-        console.warn("無法應用縮放:", error);
-      });
+      applyCameraZoom(Number($("zoom-slider").value));
+    });
+    $("tree-checkin-btn").addEventListener("click", () => {
+      if (treeTip) checkInTree(treeTip);
     });
     retryBtn.addEventListener("click", () => { void loadData(); });
     document.querySelectorAll("[data-close]").forEach((button) => {
