@@ -365,9 +365,9 @@
       <h2 id="scan-title">掃描樹木 QR Code</h2>
       <div id="reader" class="qr-reader"></div>
       <div id="zoom-box" class="zoom-box">
-        <label for="zoom-slider" class="zoom-label">🔍 鏡頭縮放 <span id="zoom-readout">1×</span> / 10×</label>
-        <input id="zoom-slider" type="range" min="1" max="10" step="0.1" value="1">
-        <p class="zoom-hint">在小徑上把花圃裡的樹牌放大來看。</p>
+        <label for="zoom-slider" class="zoom-label">🔍 鏡頭縮放 <span id="zoom-readout">1×</span> / <span id="zoom-max">30×</span></label>
+        <input id="zoom-slider" type="range" min="1" max="30" step="0.1" value="1">
+        <p class="zoom-hint">在小徑上把花圃裡的樹牌放大來看，最高 30 倍。放大的畫面會用來掃描。</p>
       </div>
       <div id="nearby-box" class="nearby-box">
         <p id="nearby-copy" class="nearby-copy">15 公尺內的樹木可以簽到。</p>
@@ -464,12 +464,13 @@
   <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/nipplejs@0.10.2/dist/nipplejs.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
   <script>
     const STORAGE_KEY = "dendro_hunter_save";
     const TREE_DATA_URL = "./Trees_Major_Parks_Trees_Major_Parks_converted.geojson";
     const TREE_API = "https://dendro-hunter.vercel.app/api/get-tree?url=";
     const CHECKIN_REWARDS = [1, 1, 2, 2, 2, 2, 3];
-    const CAMERA_ZOOM_MAX = 10;
+    const CAMERA_ZOOM_MAX = 30;
     const TREE_REACH_METERS = 15;
     const STAGE_ICONS = ["🌱", "🌿", "🪴", "🌳", "🌲"];
     const STAGE_NAMES = ["幼苗", "小樹苗", "成長期", "大樹", "巨木"];
@@ -807,6 +808,13 @@
     let qrScanner = null;
     let videoTrack = null;
     let hardwareZoom = null;
+    let zoomScanTimer = 0;
+    let zoomCanvas = null;
+    let zoomCanvasContext = null;
+    let qrDetector;
+    let decodedLock = false;
+    let zoomDetecting = false;
+    let hardwareLive = true;
     let mockPlaced = false;
     let nearbyTimer = 0;
 
@@ -1587,6 +1595,11 @@
 
     async function stopScan() {
       scanSession += 1;
+      decodedLock = false;
+      zoomDetecting = false;
+      hardwareLive = true;
+      window.clearTimeout(zoomScanTimer);
+      zoomScanTimer = 0;
       videoTrack = null;
       hardwareZoom = null;
       const scanner = qrScanner;
@@ -1598,6 +1611,11 @@
 
     async function startScan() {
       const session = ++scanSession;
+      decodedLock = false;
+      zoomDetecting = false;
+      hardwareLive = true;
+      window.clearTimeout(zoomScanTimer);
+      zoomScanTimer = 0;
       qrScanner = null;
       videoTrack = null;
       hardwareZoom = null;
@@ -1631,28 +1649,7 @@
         if (session !== scanSession || typeof Html5Qrcode === "undefined") return;
         let qr = new Html5Qrcode("reader");
         qrScanner = qr;
-        const onScan = async (decodedText) => {
-          if (session !== scanSession) return;
-          const active = qrScanner;
-          if (active) await active.stop().catch(() => undefined);
-          if (qrScanner === active) qrScanner = null;
-          if (decodedText.startsWith("http://") || decodedText.startsWith("https://")) {
-            setScanMessage({ kind: "loading", text: "正在分析網址中的樹木資料..." });
-            const name = await fetchTreeName(decodedText);
-            if (session !== scanSession) return;
-            closeModal("scan");
-            if (name && speciesInReach(name)) collect(name);
-            else if (name) showToast("這棵樹超過 15 公尺，請沿小徑再靠近一點。");
-            else {
-              showToast("網站阻擋了自動讀取，請看著樹牌手動輸入");
-              openManual();
-            }
-          } else {
-            closeModal("scan");
-            if (speciesInReach(decodedText)) collect(decodedText);
-            else showToast("這棵樹超過 15 公尺，請沿小徑再靠近一點。");
-          }
-        };
+        const onScan = (decodedText) => { void acceptScan(session, decodedText); };
         const scanConfig = { fps: 10, qrbox: 250 };
         try {
           await qr.start(
@@ -1690,8 +1687,15 @@
             videoTrack = track;
             hardwareZoom = null;
           }
+          if (track && track.getCapabilities) {
+            const focus = track.getCapabilities().focusMode;
+            if (Array.isArray(focus) && focus.indexOf("continuous") >= 0) {
+              track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => undefined);
+            }
+          }
           applyCameraZoom(Number($("zoom-slider").value) || 1);
         }, 500);
+        void pollZoomScan(session);
       } catch (error) {
         if (session !== scanSession) return;
         const name = error && error.name ? error.name : "";
@@ -1733,27 +1737,138 @@
       if (collect(value)) closeModal("manual");
     }
 
-    function applyCameraZoom(value) {
+    async function acceptScan(session, decodedText) {
+      if (session !== scanSession || decodedLock) return;
+      decodedLock = true;
+      window.clearTimeout(zoomScanTimer);
+      const active = qrScanner;
+      if (active) await active.stop().catch(() => undefined);
+      if (qrScanner === active) qrScanner = null;
+      if (session !== scanSession) return;
+      if (decodedText.startsWith("http://") || decodedText.startsWith("https://")) {
+        setScanMessage({ kind: "loading", text: "正在分析網址中的樹木資料..." });
+        const name = await fetchTreeName(decodedText);
+        if (session !== scanSession) return;
+        closeModal("scan");
+        if (name && speciesInReach(name)) collect(name);
+        else if (name) showToast("這棵樹超過 15 公尺，請沿小徑再靠近一點。");
+        else {
+          showToast("網站阻擋了自動讀取，請看著樹牌手動輸入");
+          openManual();
+        }
+      } else {
+        closeModal("scan");
+        if (speciesInReach(decodedText)) collect(decodedText);
+        else showToast("這棵樹超過 15 公尺，請沿小徑再靠近一點。");
+      }
+    }
+
+    function zoomSplit(value) {
       const zoom = Math.max(1, Math.min(CAMERA_ZOOM_MAX, Number(value) || 1));
+      let hardware = 1;
+      if (videoTrack && hardwareZoom && hardwareLive) {
+        hardware = Math.max(hardwareZoom.min, Math.min(hardwareZoom.max, zoom));
+      }
+      return { zoom, hardware, digital: hardware > 0 ? zoom / hardware : zoom };
+    }
+
+    function cropZoomedFrame(video, digital) {
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (!vw || !vh) return null;
+      const factor = Math.max(1, digital);
+      const cropW = Math.min(vw, Math.max(1, vw / factor));
+      const cropH = Math.min(vh, Math.max(1, vh / factor));
+      const sx = Math.max(0, (vw - cropW) / 2);
+      const sy = Math.max(0, (vh - cropH) / 2);
+      const longEdge = Math.max(cropW, cropH);
+      const scale = longEdge >= 640 ? 1 : 640 / longEdge;
+      if (!zoomCanvas) {
+        zoomCanvas = document.createElement("canvas");
+        zoomCanvasContext = zoomCanvas.getContext("2d", { willReadFrequently: true });
+      }
+      zoomCanvas.width = Math.max(1, Math.round(cropW * scale));
+      zoomCanvas.height = Math.max(1, Math.round(cropH * scale));
+      const ctx = zoomCanvasContext;
+      if (!ctx) return null;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(video, sx, sy, cropW, cropH, 0, 0, zoomCanvas.width, zoomCanvas.height);
+      return zoomCanvas;
+    }
+
+    async function readZoomedQr(video, digital) {
+      const canvas = cropZoomedFrame(video, digital);
+      if (!canvas) return "";
+      if (typeof BarcodeDetector !== "undefined") {
+        if (qrDetector === undefined) {
+          try { qrDetector = new BarcodeDetector({ formats: ["qr_code"] }); }
+          catch { qrDetector = null; }
+        }
+        if (qrDetector) {
+          try {
+            const codes = await qrDetector.detect(canvas);
+            const value = codes && codes[0] ? codes[0].rawValue : "";
+            if (value) return value;
+          } catch (error) {
+            console.warn("放大掃描失敗:", error);
+          }
+        }
+      }
+      if (typeof jsQR !== "function" || !zoomCanvasContext) return "";
+      const image = zoomCanvasContext.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(image.data, image.width, image.height, { inversionAttempts: "dontInvert" });
+      return code && code.data ? code.data : "";
+    }
+
+    // CSS 放大只改變預覽。超過鏡頭硬體倍率的部分要裁切原始畫面，掃描器才看得到。
+    async function pollZoomScan(session) {
+      if (session !== scanSession || decodedLock) return;
+      const video = document.querySelector("#reader video");
+      const digital = zoomSplit($("zoom-slider").value).digital;
+      if (video && video.readyState >= 2 && digital > 1.05 && !zoomDetecting) {
+        zoomDetecting = true;
+        try {
+          const text = await readZoomedQr(video, digital);
+          if (text && session === scanSession) {
+            zoomDetecting = false;
+            await acceptScan(session, text);
+            return;
+          }
+        } catch (error) {
+          console.warn("放大掃描失敗:", error);
+        } finally {
+          zoomDetecting = false;
+        }
+      }
+      if (session === scanSession && !decodedLock) {
+        zoomScanTimer = window.setTimeout(() => { void pollZoomScan(session); }, 200);
+      }
+    }
+
+    function applyCameraZoom(value) {
+      const split = zoomSplit(value);
       const readout = $("zoom-readout");
-      if (readout) readout.textContent = zoom.toFixed(1).replace(/\.0$/, "") + "×";
+      if (readout) readout.textContent = split.zoom.toFixed(1).replace(/\.0$/, "") + "×";
+      const maxLabel = $("zoom-max");
+      if (maxLabel) maxLabel.textContent = CAMERA_ZOOM_MAX + "×";
       const slider = $("zoom-slider");
       slider.min = "1";
       slider.max = String(CAMERA_ZOOM_MAX);
       slider.step = "0.1";
-      let hardware = 1;
-      if (videoTrack && hardwareZoom) {
-        hardware = Math.max(hardwareZoom.min, Math.min(hardwareZoom.max, zoom));
-        videoTrack.applyConstraints({ advanced: [{ zoom: hardware }] }).catch((error) => {
+      if (videoTrack && hardwareZoom && hardwareLive) {
+        const requested = split.hardware;
+        videoTrack.applyConstraints({ advanced: [{ zoom: requested }] }).catch((error) => {
           console.warn("無法應用縮放:", error);
+          if (!hardwareLive || Number($("zoom-slider").value) !== split.zoom) return;
+          hardwareLive = false;
+          applyCameraZoom(split.zoom);
         });
       }
       const video = document.querySelector("#reader video");
-      if (video) {
-        const digital = hardware > 0 ? zoom / hardware : zoom;
-        video.style.transformOrigin = "center center";
-        video.style.transform = digital > 1.01 ? "scale(" + digital + ")" : "";
-      }
+      if (!video) return;
+      video.style.transformOrigin = "center center";
+      video.style.imageRendering = split.digital > 1.01 ? "pixelated" : "";
+      video.style.transform = split.digital > 1.01 ? "scale(" + split.digital + ")" : "";
     }
 
     settingsBtn.addEventListener("click", () => {
