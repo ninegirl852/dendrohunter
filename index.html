@@ -137,7 +137,7 @@
     }
     .action-menu {
       display: none; position: absolute; right: 16px; bottom: 80px; z-index: 1000;
-      flex-direction: column; gap: 10px; width: min(160px, calc(100vw - 32px));
+      flex-direction: column; gap: 10px; width: min(190px, calc(100vw - 32px));
       padding: 12px; border: 2px solid #8e44ad; border-radius: 16px;
       background: rgba(255, 255, 255, 0.95); box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
     }
@@ -287,6 +287,30 @@
       width: 100%; margin-top: 10px; border: 0; border-radius: 8px; background: #27ae60;
       padding: 8px 12px; color: #fff; font-size: 14px; font-weight: 700; cursor: pointer;
     }
+    .puzzle-btn { background: linear-gradient(135deg, #6c3483, #8e44ad); }
+    .puzzle-jump-btn {
+      width: 100%; margin-top: 8px; border: 0; border-radius: 8px; background: #8e44ad;
+      padding: 10px; color: #fff; font-weight: 700;
+    }
+    .puzzle-note { margin: 8px 0 0; color: #666; font-size: 12px; }
+    .speaker { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+    .avatar {
+      width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center;
+      justify-content: center; flex: 0 0 auto; background: #e8f8f5; border: 2px solid #16a085;
+      font-size: 32px; line-height: 1;
+    }
+    .avatar.spirit { background: #f5eef8; border-color: #8e44ad; }
+    .speaker h2 { margin: 0; }
+    .speaker p { margin: 2px 0 0; color: #666; font-size: 12px; }
+    .choice-btn {
+      width: 100%; margin-top: 8px; border: 0; border-radius: 8px; background: #8e44ad;
+      padding: 10px 12px; color: #fff; font-size: 14px; font-weight: 700; text-align: left;
+    }
+    .leaflet-tooltip.search-area-label {
+      background: rgba(142, 68, 173, 0.92); color: #fff; border: 0; border-radius: 999px;
+      font-weight: 700; box-shadow: none;
+    }
+    .leaflet-tooltip.search-area-label::before { display: none; }
     .game-root .leaflet-top.leaflet-left { top: 118px; }
     .game-root .leaflet-bottom.leaflet-right { bottom: 78px; }
     @media (max-width: 640px) {
@@ -337,6 +361,8 @@
           <option value="">-- 請先開啟虛擬 GPS --</option>
         </select>
       </div>
+      <button type="button" id="puzzle-jump-btn" class="puzzle-jump-btn">虛擬 GPS：傳到目前線索</button>
+      <p class="puzzle-note">不用親身到公園。開啟虛擬 GPS 後，可傳到香港公園，再沿三條線索移動。</p>
       <hr class="settings-rule">
       <button type="button" id="reset-btn" class="reset-btn">🗑️ 重設遊戲資料</button>
     </section>
@@ -351,6 +377,8 @@
       <button type="button" id="cards-menu-btn" class="collection-btn">📖 我的卡牌</button>
       <button type="button" id="real-scan-btn" class="real-scan-btn">真實掃描 QR</button>
       <button type="button" id="manual-scan-btn" class="scan-btn">模擬掃描</button>
+      <button type="button" id="puzzle-menu-btn" class="puzzle-btn">🌳 公園謎題</button>
+      <button type="button" id="spirit-menu-btn" class="puzzle-btn">✨ 跟樹靈說話</button>
     </div>
 
     <div id="loading" class="loading-overlay">
@@ -373,9 +401,64 @@
         <p id="nearby-copy" class="nearby-copy">15 公尺內的樹木可以簽到。</p>
         <div id="nearby-list"></div>
       </div>
+      <div id="spirit-box" class="nearby-box" hidden>
+        <p id="spirit-scan-copy" class="nearby-copy"></p>
+        <button type="button" id="spirit-dialogue-btn" class="choice-btn">用對話問樹靈</button>
+      </div>
       <div id="scan-message" class="scan-message">正在請求相機權限...</div>
       <div class="modal-actions">
         <button type="button" class="cancel-btn" data-close="scan">關閉</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="ranger-modal" class="modal-backdrop">
+    <div class="game-modal" role="dialog" aria-modal="true" aria-labelledby="ranger-title">
+      <div class="speaker">
+        <div class="avatar" aria-hidden="true">🧑‍🌾</div>
+        <div>
+          <h2 id="ranger-title">阿森</h2>
+          <p>公園管理員</p>
+        </div>
+      </div>
+      <p id="ranger-kicker" class="checkin-streak"></p>
+      <p id="ranger-copy" class="modal-desc"></p>
+      <div class="modal-actions">
+        <button type="button" class="cancel-btn" data-close="ranger">關閉</button>
+        <button type="button" id="ranger-talk" class="confirm-btn">跟樹靈說話</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="spirit-modal" class="modal-backdrop">
+    <div class="game-modal" role="dialog" aria-modal="true" aria-labelledby="spirit-title">
+      <div class="speaker">
+        <div class="avatar spirit" aria-hidden="true">🌿</div>
+        <div>
+          <h2 id="spirit-title">樹靈</h2>
+          <p id="spirit-step">香港公園</p>
+        </div>
+      </div>
+      <p id="spirit-question" class="modal-desc"></p>
+      <div id="spirit-choices"></div>
+      <div class="modal-actions">
+        <button type="button" class="cancel-btn" data-close="spirit">離開</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="wrong-modal" class="modal-backdrop">
+    <div class="game-modal" role="dialog" aria-modal="true" aria-labelledby="wrong-title">
+      <div class="speaker">
+        <div class="avatar spirit" aria-hidden="true">🌿</div>
+        <div>
+          <h2 id="wrong-title">樹靈</h2>
+          <p>另一棵樹</p>
+        </div>
+      </div>
+      <p class="modal-desc">不是這棵。回到地圖上的搜尋範圍，再找管理員說的那一棵。</p>
+      <div class="modal-actions">
+        <button type="button" class="cancel-btn" data-close="wrong">知道了</button>
       </div>
     </div>
   </div>
@@ -471,6 +554,52 @@
     const CHECKIN_REWARDS = [1, 1, 2, 2, 2, 2, 3];
     const CAMERA_ZOOM_MAX = 10;
     const TREE_REACH_METERS = 15;
+    const PUZZLE_KEY = "dendro_hunter_puzzle";
+    const PUZZLE_PARK = "香港公園";
+    const PUZZLE_STEPS = [
+      {
+        chinese: "木棉",
+        scientific: "Bombax ceiba",
+        lat: 22.277370000000076,
+        lng: 114.16182000000003,
+        clue: "我是香港公園的管理員阿森。園裡有三個樹靈。地圖只畫搜尋範圍，不會標出樹的位置。第一個範圍：找樹幹有粗刺、春天開大紅花的那棵。走到 15 公尺內，開鏡頭或跟樹靈說話。",
+        question: "我的葉子像一隻張開的手掌。你看到的是哪一種葉？",
+        choices: [
+          { id: "palm-leaf", label: "掌狀複葉" },
+          { id: "split-leaf", label: "頂端裂成兩半的葉" },
+          { id: "feather-leaf", label: "像羽毛排開的葉" },
+        ],
+        answer: "palm-leaf",
+      },
+      {
+        chinese: "洋紫荊",
+        scientific: "Bauhinia x blakeana",
+        lat: 22.27681000000007,
+        lng: 114.1600400000001,
+        clue: "答對了。下一個搜尋範圍裡，葉子像羊蹄，花是紫紅色。那是香港的區花。",
+        question: "大家用我的名字稱呼香港的區花。我叫什麼？",
+        choices: [
+          { id: "kapok", label: "木棉" },
+          { id: "bauhinia", label: "洋紫荊" },
+          { id: "royal-palm", label: "大王椰子" },
+        ],
+        answer: "bauhinia",
+      },
+      {
+        chinese: "大王椰子",
+        scientific: "Roystonea regia",
+        lat: 22.277340000000038,
+        lng: 114.15961000000004,
+        clue: "最後一個範圍是很高、沒有分枝的樹。圓圓的果實掛在樹冠下面。",
+        question: "我的果實圓圓的，掛在高高的樹冠下。我是哪一種？",
+        choices: [
+          { id: "kapok", label: "木棉" },
+          { id: "bauhinia", label: "洋紫荊" },
+          { id: "royal-palm", label: "大王椰子" },
+        ],
+        answer: "royal-palm",
+      },
+    ];
     const STAGE_ICONS = ["🌱", "🌿", "🪴", "🌳", "🌲"];
     const STAGE_NAMES = ["幼苗", "小樹苗", "成長期", "大樹", "巨木"];
     const HONG_KONG = { lat: 22.3193, lng: 114.1694 };
@@ -767,11 +896,205 @@
       });
     }
 
+    function loadPuzzle() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(PUZZLE_KEY) || "null");
+        const step = Math.max(0, Math.min(PUZZLE_STEPS.length, Number(parsed && parsed.step) || 0));
+        return { started: Boolean(parsed && parsed.started), step };
+      } catch {
+        return { started: false, step: 0 };
+      }
+    }
+
+    function savePuzzle() {
+      localStorage.setItem(PUZZLE_KEY, JSON.stringify(puzzle));
+    }
+
+    function offsetMeters(lat, lng, east, north) {
+      const latScale = 111000;
+      const lngScale = 111000 * Math.cos((lat * Math.PI) / 180);
+      return { lat: lat + north / latScale, lng: lng + east / lngScale };
+    }
+
+    function currentPuzzleStep() {
+      if (!puzzle.started || puzzle.step >= PUZZLE_STEPS.length) return null;
+      return PUZZLE_STEPS[puzzle.step];
+    }
+
+    function searchArea(step) {
+      return { center: offsetMeters(step.lat, step.lng, 22, 6), radius: 48 };
+    }
+
+    function clueStand(step) {
+      return offsetMeters(step.lat, step.lng, 0, 10);
+    }
+
+    function drawPuzzleArea() {
+      if (!mapBundle || typeof L === "undefined") return;
+      if (puzzleCircle) {
+        puzzleCircle.unbindTooltip();
+        mapBundle.map.removeLayer(puzzleCircle);
+        puzzleCircle = null;
+      }
+      document.querySelectorAll(".leaflet-tooltip.search-area-label").forEach((node) => node.remove());
+      const step = currentPuzzleStep();
+      if (!step) return;
+      const area = searchArea(step);
+      puzzleCircle = L.circle([area.center.lat, area.center.lng], {
+        radius: area.radius,
+        color: "#8e44ad",
+        weight: 2,
+        dashArray: "6 6",
+        fillColor: "#9b59b6",
+        fillOpacity: 0.18,
+      }).addTo(mapBundle.map);
+      puzzleCircle.bindTooltip("搜尋範圍", { permanent: true, direction: "center", className: "search-area-label" });
+    }
+
+    function showRanger(fly) {
+      puzzle.started = true;
+      savePuzzle();
+      drawPuzzleArea();
+      const done = puzzle.step >= PUZZLE_STEPS.length;
+      $("ranger-kicker").textContent = done ? "謎題完成" : "線索 " + (puzzle.step + 1) + " / 3";
+      $("ranger-copy").textContent = done
+        ? "三棵樹靈都聽懂了你的答案。香港公園這段試玩到這裡。木棉、洋紫荊、大王椰子，你都認出來了。"
+        : PUZZLE_STEPS[puzzle.step].clue;
+      $("ranger-talk").hidden = done;
+      openModal("ranger");
+      const step = currentPuzzleStep();
+      if (fly && step && mapBundle) {
+        const area = searchArea(step);
+        mapBundle.map.flyTo([area.center.lat, area.center.lng], 17);
+      }
+    }
+
+    function showQuestion(step) {
+      $("spirit-step").textContent = "線索 " + (puzzle.step + 1) + " / 3";
+      $("spirit-question").textContent = step.question;
+      const box = $("spirit-choices");
+      box.replaceChildren();
+      step.choices.forEach((choice) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "choice-btn";
+        button.textContent = choice.label;
+        button.addEventListener("click", () => answerPuzzle(choice.id));
+        box.appendChild(button);
+      });
+      openModal("spirit");
+    }
+
+    function answerPuzzle(choiceId) {
+      const step = PUZZLE_STEPS[puzzle.step];
+      if (!step) return;
+      if (choiceId !== step.answer) {
+        showToast("樹靈說：再看看葉子、果實或名字。");
+        return;
+      }
+      puzzle.step += 1;
+      savePuzzle();
+      closeModal("spirit");
+      drawPuzzleArea();
+      if (puzzle.step >= PUZZLE_STEPS.length) {
+        showToast("三題都答對了，謎題完成。");
+      } else {
+        showToast("答對了。管理員給你下一條線索。");
+      }
+      showRanger(true);
+    }
+
+    function talkToSpirit() {
+      if (!puzzle.started) {
+        showRanger(true);
+        showToast("先聽公園管理員的第一條線索。");
+        return;
+      }
+      if (puzzle.step >= PUZZLE_STEPS.length) {
+        showRanger(false);
+        return;
+      }
+      const step = PUZZLE_STEPS[puzzle.step];
+      if (!reachOrigins().length) {
+        showToast("請先允許定位，或在設定開啟虛擬 GPS，再傳到線索。");
+        return;
+      }
+      if (distanceToTree(step) <= TREE_REACH_METERS) {
+        showQuestion(step);
+        return;
+      }
+      if (treesInReach().length) {
+        openModal("wrong");
+        return;
+      }
+      showToast("再走近一點。要在這棵樹 15 公尺內，樹靈才會開口。");
+    }
+
+    function renderSpiritPrompt() {
+      const box = $("spirit-box");
+      const copy = $("spirit-scan-copy");
+      if (!box || !copy) return;
+      if (puzzle.started && puzzle.step >= PUZZLE_STEPS.length) {
+        box.hidden = false;
+        copy.textContent = "這段謎題已經完成。";
+        return;
+      }
+      const step = currentPuzzleStep();
+      if (!step || !reachOrigins().length) {
+        box.hidden = !puzzle.started;
+        copy.textContent = puzzle.started
+          ? "鏡頭用不了也可以。用對話問樹靈，15 公尺內就會出題。"
+          : "";
+        box.hidden = !puzzle.started;
+        return;
+      }
+      box.hidden = false;
+      if (distanceToTree(step) <= TREE_REACH_METERS) {
+        copy.textContent = "你已在這棵樹 15 公尺內。樹靈想問一句。沒有鏡頭也可以用對話。";
+      } else if (treesInReach().length) {
+        copy.textContent = "樹靈說：不是這棵。回到搜尋範圍再找。";
+      } else {
+        copy.textContent = "走近搜尋範圍裡的樹。15 公尺內才問得了，沒有鏡頭也能用對話。";
+      }
+    }
+
+    function jumpToCurrentClue() {
+      if (!puzzle.started) puzzle.started = true;
+      savePuzzle();
+      drawPuzzleArea();
+      const step = currentPuzzleStep();
+      if (!step) {
+        showRanger(false);
+        showToast("這段謎題已經完成。");
+        return;
+      }
+      if (!mockGps) {
+        mockInput.checked = true;
+        mockGps = true;
+        gps = { kind: "mock" };
+        renderGps();
+        updateChrome();
+        startGps();
+      }
+      const stand = clueStand(step);
+      mockPlaced = true;
+      movePlayer(stand.lat, stand.lng);
+      if (parkSelect.querySelector('option[value="' + PUZZLE_PARK + '"]')) parkSelect.value = PUZZLE_PARK;
+      const area = searchArea(step);
+      if (mapBundle) mapBundle.map.flyTo([area.center.lat, area.center.lng], 17);
+      scheduleNearby();
+      showRanger(false);
+      showToast("已用虛擬 GPS 傳到目前線索附近，約 10 公尺，還在 15 公尺內。");
+    }
+
     function scheduleNearby() {
       if (!$("scan-modal").classList.contains("show") && treeInfo.hidden) return;
       window.clearTimeout(nearbyTimer);
       nearbyTimer = window.setTimeout(() => {
-        if ($("scan-modal").classList.contains("show")) renderNearby();
+        if ($("scan-modal").classList.contains("show")) {
+          renderNearby();
+          renderSpiritPrompt();
+        }
         if (treeTip) renderTreeTip();
       }, 250);
     }
@@ -809,6 +1132,8 @@
     let hardwareZoom = null;
     let mockPlaced = false;
     let nearbyTimer = 0;
+    let puzzleCircle = null;
+    let puzzle = loadPuzzle();
 
     function showToast(message) {
       const toast = $("toast");
@@ -984,6 +1309,7 @@
         map.setView([playerPos.lat, playerPos.lng], 16);
         appliedLock = true;
       }
+      drawPuzzleArea();
     }
 
     function fillParkSelect() {
@@ -1515,6 +1841,9 @@
 
     function resetGame() {
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(PUZZLE_KEY);
+      puzzle = { started: false, step: 0 };
+      drawPuzzleArea();
       player = emptyPlayer();
       settingsOpen = false;
       closeModal("reset");
@@ -1605,6 +1934,7 @@
       applyCameraZoom(1);
       $("reader").replaceChildren();
       renderNearby();
+      renderSpiritPrompt();
       setScanMessage({ kind: "text", text: "正在請求相機權限..." });
       try {
         if (!window.isSecureContext) {
@@ -1703,6 +2033,7 @@
         } else {
           setScanMessage({ kind: "error", title: "❌ 找不到相機或發生錯誤", detail: message });
         }
+        renderSpiritPrompt();
       }
     }
 
@@ -1798,6 +2129,14 @@
     $("cards-menu-btn").addEventListener("click", () => { renderCards(); openModal("cards"); });
     $("real-scan-btn").addEventListener("click", () => { openModal("scan"); void startScan(); });
     $("manual-scan-btn").addEventListener("click", openManual);
+    $("puzzle-menu-btn").addEventListener("click", () => showRanger(true));
+    $("spirit-menu-btn").addEventListener("click", talkToSpirit);
+    $("ranger-talk").addEventListener("click", () => {
+      closeModal("ranger");
+      talkToSpirit();
+    });
+    $("puzzle-jump-btn").addEventListener("click", jumpToCurrentClue);
+    $("spirit-dialogue-btn").addEventListener("click", talkToSpirit);
     $("manual-confirm").addEventListener("click", confirmManual);
     $("species-input").addEventListener("input", () => {
       $("species-error").hidden = true;
